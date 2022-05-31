@@ -1,21 +1,35 @@
 #%%
 import numpy as np
-from scipy.stats import multivariate_t
+from scipy.stats import multivariate_t, norm
 from scipy.special import logsumexp
 import matplotlib.pyplot as plt
 
 from .core import GibbsDirichletProcess, DirichletProcess
 from .utils import plot_cov_ellipse
 
-'''
-Infinite Gaussian mixture model.
-
-Dirichlet process, gibbs sampling. 
-
-© Julian Neri, 2022
-'''
-
 class DP_GMM(GibbsDirichletProcess):
+    r'''
+    Infinite Gaussian mixture model.
+
+    Dirichlet process, gibbs sampling. 
+
+    Author: Julian Neri, 2022
+
+    Examples
+    --------
+    Import package
+    >>> from gibbs import DP_GMM
+
+    Create model and generate data from it
+    >>> model = DP_GMM(output_dim=2)
+    >>> x = model.generate(200)[0]
+
+    Fit the model to the data using the Gibbs sampler.
+    >>> model.fit(x,samples=20)
+    >>> model.plot()
+    >>> model.plot_samples()
+
+    '''
     def __init__(self,output_dim=1,alpha=1,learn=True):
         super().__init__(alpha=alpha,learn=learn)
         self.output_dim = output_dim
@@ -37,10 +51,6 @@ class DP_GMM(GibbsDirichletProcess):
         k0 = .01
         S0 = np.eye(self.output_dim)*nu0*50
         self._hyperparameter_lookup.append(tuple([m0,k0,S0,nu0]))
-
-    def _sample_hyperparameters(self):
-        j = np.random.randint(0,2)
-        return j
         
     def _posterior(self,idx,m0,k0,S0,nu0):
         N = idx.sum()
@@ -60,29 +70,45 @@ class DP_GMM(GibbsDirichletProcess):
     def _prior_predictive(self,x_i,m0,k0,S0,nu0):
         return self._predictive(x_i,m0,k0,S0,nu0)
 
-    # Multivariate t
-    def _predictive(self,x,m,k,S,nu):
+    def _predictive_parameters(self,m,k,S,nu):
         _m = m
         _nu = nu - self.output_dim + 1.0
         _S = (k + 1.0)/(k*_nu) * S
+        return _m, _S, _nu
+
+    # Multivariate t
+    def _predictive(self,x,m,k,S,nu):
+        _m, _S, _nu = self._predictive_parameters(m,k,S,nu)
         return multivariate_t.pdf(x,loc=_m,shape=_S,df=_nu)
 
     def _sample_z_one(self,n):
-        rho = np.zeros(self.K+1)
+        rho = np.zeros(self.K+2)
         for k in range(self.K):
             idx = self._parameters['z'] == k
             idx[n] = False
             if idx.sum() > 0:
                 m0,k0,S0,nu0 = self._hyperparameters[k]
                 rho[k] = self._posterior_predictive(self.x[n],idx,m0,k0,S0,nu0) * idx.sum()
-        kind = self._sample_hyperparameters()
-        m0,k0,S0,nu0 = self._hyperparameter_lookup[kind]
+
+        theta_prior = [[],[]]
+        m0,k0,S0,nu0 = self._hyperparameter_lookup[0]
+        theta_prior[0] = tuple([m0,k0,S0,nu0])
+        rho[-2] = self._prior_predictive(self.x[n],m0,k0,S0,nu0) * self._parameters['alpha']
+
+        m0,k0,S0,nu0 = self._hyperparameter_lookup[1]
+        theta_prior[1] = tuple([m0,k0,S0,nu0])
         rho[-1] = self._prior_predictive(self.x[n],m0,k0,S0,nu0) * self._parameters['alpha']
+
         rho /= rho.sum()
         _z_now = np.random.multinomial(1,rho).argmax()
         
         if _z_now > (self.K-1):
-            self._hyperparameters.append(tuple([m0,k0,S0,nu0]))
+            if _z_now == self.K:
+                kind = 0
+            else:
+                kind = 1
+            _z_now = self.K + 0
+            self._hyperparameters.append(theta_prior[kind])
             self._kinds.append(kind)
             self.K += 1
         self._parameters['z'][n] = _z_now
@@ -127,9 +153,20 @@ class DP_GMM(GibbsDirichletProcess):
                 idx = z_hat==k
                 m0,k0,S0,nu0 = self._hyperparameters[k]
                 muN,kN,SN,nuN = self._posterior(idx,m0,k0,S0,nu0)
+                mu_x, S_x, nu_x = self._predictive_parameters(muN,kN,SN,nuN)
+                S_x *= nu_x/(nu_x - 2)
 
-                plot_cov_ellipse(muN,SN/nuN,facecolor='none',edgecolor=colors[k])
+                plot_cov_ellipse(mu_x,S_x,facecolor='none',edgecolor=colors[k])
         elif self.output_dim == 1:
+            _x = np.linspace(self.x.min(),self.x.max(),128)
             plt.scatter(self.x,self.x*0,c=colors[z_hat])
+            for k in (K_hat):
+                idx = z_hat==k
+                m0,k0,S0,nu0 = self._hyperparameters[k]
+                muN,kN,SN,nuN = self._posterior(idx,m0,k0,S0,nu0)
+                mu_x, S_x, nu_x = self._predictive_parameters(muN,kN,SN,nuN)
+                S_x *= nu_x/(nu_x - 2)
+                _px = norm.pdf(_x,mu_x.ravel(),S_x.ravel())
+                plt.plot(_x,_px,color=colors[k])
         plt.grid()
         plt.tight_layout()

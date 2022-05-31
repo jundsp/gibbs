@@ -1,0 +1,10 @@
+Metadata-Version: 1.0
+Name: gibbs
+Version: 0.0
+Summary: Gibbs samplers for inference and learning of hierarchical Bayesian models.
+Home-page: https://www.github.com/jundsp/gibbs
+Author: Julian Neri
+Author-email: julian.neri@mcgill.ca
+License: GNU
+Description: UNKNOWN
+Platform: UNKNOWN

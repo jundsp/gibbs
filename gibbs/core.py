@@ -6,13 +6,13 @@ from scipy.stats import multinomial, gamma, beta
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-'''
-Gibbs sampler base class.
-
-Julian Neri, May 2022
-'''
 
 class Gibbs(object):
+    r'''
+    Gibbs sampler base class.
+
+    Author: Julian Neri, May 2022
+    '''
     def __init__(self):
         self._parameters = OrderedDict()
         self._samples = OrderedDict()
@@ -99,14 +99,12 @@ class Gibbs(object):
             output += " " + i +  " =  " + str(self._parameters[i]) + " \n"
         return output
 
-
-'''
-Gibbs sampler sub-class for the Dirichlet process.
-
-Julian Neri, May 2022
-'''
-
 class GibbsDirichletProcess(Gibbs):
+    '''
+    Gibbs sampler sub-class for the Dirichlet process.
+
+    Author: Julian Neri, May 2022
+    '''
     def __init__(self,alpha=1,learn=True):
         super().__init__()
         self.K = 0
@@ -160,14 +158,12 @@ class GibbsDirichletProcess(Gibbs):
         plt.tight_layout()
 
 
-
-
-'''
-Dirichlet process model, for generation.
-
-© Julian Neri, 2022
-'''
 class DirichletProcess(object):
+    '''
+    Dirichlet process model, for generation.
+
+    Author: Julian Neri, 2022
+    '''
     def __init__(self,alpha=1):
         self.alpha = alpha
         self.reset()
