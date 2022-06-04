@@ -138,15 +138,20 @@ class GibbsDirichletProcess(Gibbs):
             self._parameters['eta'] = beta.rvs(a,b)
 
     def _collapse_groups(self):
-        z_unique = np.unique(self._parameters['z'])
-        self.K = len(z_unique)
+        z_active = np.unique(self._parameters['z'])
+        self.K = len(z_active)
         temp = self._parameters['z'].copy()
         for k in range(self.K):
-            idx = self._parameters['z'] == z_unique[k]
+            idx = self._parameters['z'] == z_active[k]
             temp[idx] = k
         self._parameters['z'] = temp.copy()
-        self._hyperparameters = [self._hyperparameters[k] for k in z_unique]
-        self._kinds = [self._kinds[k] for k in z_unique]
+        
+        if "_hyperparameters" in self.__dict__:
+            if len(self._hyperparameters) > 0:
+                self._hyperparameters = [self._hyperparameters[k] for k in z_active]
+        if "_kinds" in self.__dict__:
+            if len(self._kinds) > 0:
+                self._kinds = [self._kinds[k] for k in z_active]
 
     def plot_samples(self):
         n = len(self._samples)

@@ -4,7 +4,6 @@ Example of collapsed Gibbs sampling from Dirichlet Process infinite Gaussian mix
 Author: Julian Neri
 Date: May 31, 2022
 '''
-
 #%%
 import gibbs
 
