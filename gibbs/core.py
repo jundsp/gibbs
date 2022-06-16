@@ -83,8 +83,7 @@ class Gibbs(object):
             else:
                 print("Sampler for parameter '{}' is not implemented.".format(p))
         
-
-    def fit(self,samples=100,burn_rate=.5):
+    def fit(self,x,samples=100,burn_rate=.5):
         for s in tqdm(range(samples)):
             self._sample()
             self._append()
