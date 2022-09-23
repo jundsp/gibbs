@@ -58,7 +58,6 @@ class DP_LDS(GibbsDirichletProcess):
         '''
         taus = np.ones(self.latent_dim) * self.tau**2.0
         taus[self.order*(self.state_dim-1):] *= 1e-1
-        print(taus)
         Q = np.diag(taus)
         
         system_mtx = lds.polynomial_matrix(self.order,shift=1)
@@ -303,41 +302,34 @@ class DP_LDS(GibbsDirichletProcess):
 
 #%%
 # np.random.seed(123)
-if __name__ == "__main__":
-    import sines
-    T = 20
-    M = 4
-    K = 2
-    _t = []
-    _x = []
-    _y = []
-    y = np.sin(2*np.pi*(np.arange(T)-T/2)/T*.4)
-    y = np.stack([y,-y],-1)
-    for t in range(T):
-        for m in range(M):
-            for k in range(K):
-                _t.append(t)
-                _x.append(m)
-                _y.append(y[t,k])
+T = 20
+M = 4
+K = 2
+_t, _x, _y = [], [], []
+y = np.sin(2*np.pi*(np.arange(T)-T/2)/T*.5)
+y = np.stack([y,-y],-1)
+for t in range(T):
+    for m in range(M):
+        for k in range(K):
+            _t.append(t)
+            _x.append(m)
+            _y.append(y[t,k])
 
-    t = np.array(_t)
-    x = np.array(_x)
-    y = np.array(_y)
-    y += np.random.normal(0,.1,y.shape)
-    y = np.stack([y,-y],-1)
-    x = (x-x.min())/(x.max()-x.min())*2-1
-    
-#%%
-    fig,ax = plt.subplots(2,subplot_kw=dict(projection="3d",proj_type="ortho"))
-    ax[0].scatter3D(t,x,y[:,0],s=10,color='k')
-    ax[1].scatter3D(t,x,y[:,1],s=10,color='k')
+t, x, y = np.array(_t), np.array(_x), np.array(_y)
+
+y += np.random.normal(0,.1,y.shape)
+y = np.stack([y,-y*0],-1)
+x = (x-x.min())/(x.max()-x.min())*2-1
+
+fig,ax = plt.subplots(2,subplot_kw=dict(projection="3d",proj_type="ortho"))
+ax[0].scatter3D(t,x,y[:,0],s=10,color='k')
+ax[1].scatter3D(t,x,y[:,1],s=10,color='k')
+
+model = DP_LDS(order=2,state_dim=3,tau=.5,emission="polynomial")
 
 #%%
-    model = DP_LDS(order=2,state_dim=3,tau=.5,emission="polynomial")
-
-#%%
-    model.fit(t=t,y=y,x=x,samples=2)
-    model.plot()
-    model.plot_samples()
+model.fit(t=t,y=y,x=x,samples=10)
+model.plot()
+model.plot_samples()
 
 # %%

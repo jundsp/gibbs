@@ -73,7 +73,7 @@ class Gibbs(object):
             num_samples = len(self._samples[p])
             burn_in = int(num_samples * burn_rate)
             stacked = np.stack(self._samples[p][burn_in::skip_sample],0)
-            self._estimates[p] = np.median(stacked,0)
+            self._estimates[p] = np.median(stacked,0).astype(stacked.dtype)
 
     def _sample(self):
         for p in self._parameters:
@@ -83,7 +83,7 @@ class Gibbs(object):
             else:
                 print("Sampler for parameter '{}' is not implemented.".format(p))
         
-    def fit(self,x,samples=100,burn_rate=.5):
+    def fit(self,samples=100,burn_rate=.5):
         for s in tqdm(range(samples)):
             self._sample()
             self._append()
@@ -159,6 +159,8 @@ class GibbsDirichletProcess(Gibbs):
             stacked = np.stack(self._samples[s],0)
             ax[j].plot(stacked,'k',alpha=.5)
             ax[j].set_title(s)
+            ax[j].set_ylim(0)
+        ax[-1].set_xlabel('step')
         plt.tight_layout()
 
 
