@@ -302,8 +302,8 @@ class DP_LDS(GibbsDirichletProcess):
 
 #%%
 # np.random.seed(123)
-T = 20
-M = 4
+T = 10
+M = 20
 K = 2
 _t, _x, _y = [], [], []
 y = np.sin(2*np.pi*(np.arange(T)-T/2)/T*.5)
@@ -317,7 +317,7 @@ for t in range(T):
 
 t, x, y = np.array(_t), np.array(_x), np.array(_y)
 
-y += np.random.normal(0,.1,y.shape)
+y += np.random.normal(0,.2,y.shape)
 y = np.stack([y,-y*0],-1)
 x = (x-x.min())/(x.max()-x.min())*2-1
 

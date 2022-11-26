@@ -121,8 +121,7 @@ class GibbsDirichletProcess(Gibbs):
             y = a + K - 1
             z = self.N * b_hat
             pi_eta = y/(y+z)
-            pi_ = np.array([pi_eta,1-pi_eta])
-            pi_ = pi_.ravel()
+            pi_ = np.array([pi_eta,1-pi_eta]).ravel()
             m = multinomial.rvs(1.0,pi_).argmax()
             if m == 0:
                 a_hat = a + K
