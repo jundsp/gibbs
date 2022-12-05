@@ -1,11 +1,357 @@
-#%%
 import numpy as np
-from scipy.stats import multivariate_t, norm
+from scipy.stats import multivariate_t, norm, wishart, multinomial, dirichlet, gamma
+from scipy.stats import multivariate_normal as mvn
 from scipy.special import logsumexp
 import matplotlib.pyplot as plt
 
-from .core import GibbsDirichletProcess, DirichletProcess
+from .core import GibbsDirichletProcess, DirichletProcess, Gibbs
 from .utils import plot_cov_ellipse
+from multiprocessing import Pool
+import scipy.linalg as la
+import os
+
+class GMM(Gibbs):
+    r'''
+        Finite Bayesian mixture of Gaussians.
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+
+        Examples
+        --------
+        Import package
+        >>> from gibbs import GMM, gmm_generate
+
+        Generate data
+        >>> x = gmm_generate(200)[0]
+        Create model
+        >>> model = GMM(output_dim=2)
+        Fit the model to the data using the Gibbs sampler.
+        >>> model.fit(x,samples=20)
+        >>> model.plot()
+        >>> model.plot_samples()
+    '''
+    def __init__(self,output_dim=1,components=3):
+        super().__init__()
+        self.output_dim = output_dim
+        self.components = components
+        
+        self.register_parameter("z",None)
+        self.register_parameter("mu",3*np.random.normal(0,1,(components,output_dim)))
+        self.register_parameter("Sigma",np.stack([np.eye(output_dim)]*components,0))
+        self.register_parameter("pi",np.ones(components)/components)
+        
+        self.lambda0 = .01
+        self.alpha0 = np.ones(components) / components
+        self.nu0 = self.output_dim + 1.0
+        self.iW0 = np.eye(self.output_dim)
+        
+    def fit(self,x,samples=100):
+        self.x = x
+        self.N = x.shape[0]
+        if self._parameters['z'] is None:
+            self._parameters['z'] = np.random.randint(0,self.components,self.N)
+        super().fit(samples)
+
+    def loglikelihood(self,x):
+        N = x.shape[0]
+        loglike = np.zeros((N,self.components))
+        for k in range(self.components):
+            loglike[:,k] = mvn.logpdf(x,self._parameters['mu'][k],self._parameters['Sigma'][k])
+        return loglike
+
+    def _sample_z(self):
+        rho = self.loglikelihood(self.x) + np.log(self._parameters['pi'])
+        rho -= logsumexp(rho,-1).reshape(-1,1)
+        rho = np.exp(rho)
+        rho /= rho.sum(-1).reshape(-1,1)
+        for n in range(self.N):
+            self._parameters['z'][n] = np.random.multinomial(1,rho[n]).argmax()
+
+    def _sample_pi(self):
+        alpha = np.zeros(self.components)
+        for k in range(self.components):
+            alpha[k] = (self._parameters['z']==k).sum() + self.alpha0[k]
+        self._parameters['pi'] = dirichlet.rvs(alpha)
+
+    def _sample_mu(self):
+        for k in range(self.components):
+            idx = (self._parameters['z']==k)
+            Nk = idx.sum()
+            iSigma = la.inv(self._parameters['Sigma'][k])
+            ell = iSigma @ self.x[idx].sum(0) 
+            lam = iSigma * Nk  + self.lambda0*np.eye(ell.shape[0])
+            Sigma = la.inv(lam)
+            mean = Sigma @ ell
+            self._parameters['mu'][k] = mvn.rvs(mean, Sigma)
+
+    def _sample_Sigma(self):
+        for k in range(self.components):
+            idx = (self._parameters['z']==k)
+            
+            Nk = idx.sum()
+            nu = self.nu0 + Nk
+
+            x_eps = self.x[idx] - self._parameters['mu'][k][None,:]
+            iW = self.iW0 + x_eps.T @ x_eps
+            W = la.inv(iW)
+
+            Lambda = wishart.rvs(df=nu,scale=W)      
+            self._parameters['Sigma'][k] = la.inv(Lambda)    
+
+    def plot(self,figsize=(4,3),**kwds_scatter):
+        z_hat = self._estimates['z'].astype(int)
+        colors = np.array(['r','g','b','m','y','k','orange']*3)
+        plt.figure(figsize=figsize)
+        if self.output_dim == 2:
+            plt.scatter(self.x[:,0],self.x[:,1],c=colors[z_hat],**kwds_scatter)
+            for k in np.unique(z_hat):
+                plot_cov_ellipse(self._estimates['mu'][k],self._estimates['Sigma'][k],facecolor='none',edgecolor=colors[k])
+        plt.xlabel('$y_1$')
+        plt.ylabel('$y_2$')
+        plt.tight_layout()
+
+class HMM(Gibbs):
+    r'''
+        Bayesian hidden Markov model, Gaussian emmission.
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+
+        Examples
+        --------
+        Import package
+        >>> from gibbs import HMM, hmm_generate
+
+        Generate data
+        >>> x = hmm_generate(200)[0]
+        Create model
+        >>> model = HMM(output_dim=2)
+        Fit the model to the data using the Gibbs sampler.
+        >>> model.fit(x,samples=20)
+        >>> model.plot()
+        >>> model.plot_samples()
+    '''
+    def __init__(self,output_dim=1,switch_dim=1,expected_duration=5,parameter_sampling=True):
+        super().__init__()
+        self._dimy = output_dim
+        self._dimz = switch_dim
+        self.expected_duration = expected_duration
+        self.parameter_sampling = parameter_sampling
+
+        self.register_parameter("z",None)
+        self.initialize()
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize_output_model()
+
+    @property
+    def switch_dim(self):
+        return self._dimz
+    @switch_dim.setter
+    def switch_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimz:
+            self._dimz = value
+            self.initialize_switch_model()
+
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+            self.initialize_state_model()
+            self.initialize_prior_model()
+            
+    @property
+    def output(self):
+        y_hat = np.zeros((self.T,self.output_dim))
+        for t in range(self.T):
+            y_hat[t] = self._emission(t)
+        return y_hat
+
+    def initialize(self):
+        self.initialize_switch_model()
+        self.initialize_output_model()
+
+    def initialize_switch_model(self):
+        A_kk = self.expected_duration / (self.expected_duration+1)
+        A_jk = 1.0
+        if self.switch_dim > 1:
+            A_jk = (1-A_kk) / (self.switch_dim-1)
+        Gamma = np.ones((self.switch_dim,self.switch_dim)) * A_jk
+        np.fill_diagonal(Gamma,A_kk)
+        Gamma /= Gamma.sum(-1).reshape(-1,1)
+        
+        pi = np.ones(self.switch_dim) / self.switch_dim
+
+        self.prior_Gamma = Gamma.copy()
+        self.prior_pi = pi.copy()
+
+        self.register_parameter("Gamma",Gamma.copy())
+        self.register_parameter("pi",pi.copy())
+
+    def initialize_output_model(self):
+        mu0 = np.zeros(self.output_dim)
+        Sigma0 = np.eye(self.output_dim)
+
+        self.nu0 = self.output_dim+1
+        self.iW0 = np.eye(self.output_dim)
+        self.lambda0 = 1e-2
+
+        mu = mvn.rvs(mu0,Sigma0,self.switch_dim)
+        mu = np.atleast_2d(mu)
+        self.register_parameter("mu",mu.copy())
+        self.register_parameter("Sigma",np.stack([Sigma0]*self.switch_dim,0))
+
+    def _sample_mu(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        for k in range(self.switch_dim):
+            m = 0
+            Nk = 0
+            for t in range(self.T):
+                idx = (self.z[t]==k) & self.delta[t]
+                Nk += idx.sum()
+                m += self.y[t,idx].sum(0)
+
+            iSigma = la.inv(self._parameters['Sigma'][k])
+            ell = iSigma @ m
+            lam = iSigma * Nk  + self.lambda0*np.eye(ell.shape[0])
+            Sigma = la.inv(lam)
+            mean = Sigma @ ell
+            self._parameters['mu'][k] = mvn.rvs(mean, Sigma)
+
+    def _sample_Sigma(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        for k in range(self.switch_dim):
+            nu = self.nu0 + 0
+            iW = self.iW0 + 0
+            for t in range(self.T):
+                idx = (self.z[t]==k) & self.delta[t]
+                nu += idx.sum()
+                x_eps = self.y[t,idx] - self._parameters['mu'][k][None,:]
+                iW += x_eps.T @ x_eps
+
+            W = la.inv(iW)
+            Lambda = wishart.rvs(df=nu,scale=W)      
+            self._parameters['Sigma'][k] = la.inv(Lambda)  
+
+    def _sample_Gamma(self):
+        if self.parameter_sampling is False:
+            return 0
+        alpha = np.zeros(self.switch_dim)
+        for k in range(self.switch_dim):
+            n1 = (self._parameters['z'][:-1] == k)
+            for j in range(self.switch_dim):
+                n2 = (self._parameters['z'][1:] == j)
+                alpha[j] = self.prior_Gamma[k,j] + np.sum(n1 & n2)
+            self._parameters['Gamma'][k] = dirichlet.rvs(alpha)
+
+    def _sample_pi(self):
+        if self.parameter_sampling is False:
+            return 0
+        alpha = np.zeros(self.switch_dim)
+        for k in range(self.switch_dim):
+            alpha[k] = self.prior_pi[k] + (self._parameters['z'][0] == k).sum()
+        self._parameters['pi'] = dirichlet.rvs(alpha).ravel()
+
+    def _predict_hmm(self,alpha,transpose=False):
+        if transpose:
+            return np.log(np.exp(alpha) @ self._parameters['Gamma'].T)
+        else:
+            return np.log(np.exp(alpha) @ self._parameters['Gamma'])
+
+    def _log_emission_hmm(self,t):
+        logpr = np.zeros(self.switch_dim)
+        for k in range(self.switch_dim):
+            for m in np.nonzero(self.delta[t])[0]:
+                logpr[k] += mvn.logpdf(self.y[t,m],self._parameters['mu'][k] ,self._parameters['Sigma'][k])
+        return logpr
+
+    def _forward_hmm(self):
+        alpha = np.zeros((self.T,self.switch_dim))
+        c = np.zeros((self.T))    
+        prediction = np.log(self._parameters['pi']).reshape(1,-1)
+        for t in range(self.T):
+            alpha[t] = self._log_emission_hmm(t) + prediction
+            c[t] = logsumexp(alpha[t])
+            alpha[t] -= c[t]
+            prediction = self._predict_hmm(alpha[t])
+        return np.exp(alpha)
+        
+    def _sample_z(self):
+        alpha = self._forward_hmm()
+        beta = alpha[-1] / alpha[-1].sum()
+        self._parameters['z'][-1] = np.random.multinomial(1,beta).argmax()
+        for t in range(self.T-2,-1,-1):
+            beta = self._parameters['Gamma'][:,self._parameters['z'][t+1]] * alpha[t]
+            beta /= beta.sum()
+            self._parameters['z'][t] = np.random.multinomial(1,beta).argmax()
+
+    def add_data(self,y,delta=None):
+        if y.ndim == 1:
+            y = y.reshape(-1,1,1)
+        elif y.ndim == 2:
+            y = np.expand_dims(y,1)
+
+        self.y = y.copy()
+        self.T, self.N, self.output_dim = y.shape
+
+        if delta is None:
+            delta = np.ones((self.T,self.N))
+        if delta.ndim == 1:
+            delta = delta[:,None] + np.zeros((1,self.N))
+        self.delta = delta.astype(bool).copy()
+
+    def init_samples(self):
+        if self._parameters["z"] is None:
+            self._parameters["z"] = np.random.randint(0,self.switch_dim,(self.T))
+
+    def fit(self,y,delta=None,samples=10):
+        self.add_data(y=y,delta=delta)
+        self.init_samples()
+        super().fit(samples)
+
+    def generate(self,n=100):
+        z = np.zeros(n).astype(int)
+        y = np.zeros((n,self.output_dim))
+        predict = self.pi.copy()
+        for i in range(n):
+            z[i] = multinomial.rvs(1,predict).argmax()
+            y[i] = np.random.multivariate_normal(self.mu[z[i]],self.Sigma[z[i]])
+            predict = self.Gamma[z[i]]
+        return y, z
+
+    def plot(self,figsize=(4,3),**kwds_scatter):
+        z_hat = self._estimates['z'].astype(int)
+        colors = np.array(['r','g','b','m','y','k','orange']*3)
+        plt.figure(figsize=figsize)
+        if self.output_dim == 2:
+            for n in range(self.N):
+                plt.scatter(self.y[:,n,0],self.y[:,n,1],c=colors[z_hat],**kwds_scatter)
+            for k in np.unique(z_hat):
+                plot_cov_ellipse(self._estimates['mu'][k],self._estimates['Sigma'][k],facecolor='none',edgecolor=colors[k])
+        plt.xlabel('$y_1$')
+        plt.ylabel('$y_2$')
+        plt.tight_layout()
+
+
 
 class DP_GMM(GibbsDirichletProcess):
     r'''
@@ -37,6 +383,7 @@ class DP_GMM(GibbsDirichletProcess):
         self._hyperparameters = []
         self._kinds = []
         self._init_prior()
+        self.pool = Pool(os.cpu_count())
   
     def _init_prior(self):
         self._hyperparameter_lookup = [[],[]]
@@ -94,6 +441,17 @@ class DP_GMM(GibbsDirichletProcess):
         _m, _S, _nu = self._predictive_parameters(m,k,S,nu)
         return multivariate_t.pdf(x,loc=_m,shape=_S,df=_nu)
 
+    def _get_rho_one(self,n,k):
+        idx = self._parameters['z'] == k
+        idx[n] = False
+        Nk = idx.sum() 
+
+        rho = 0.0
+        if Nk > 0:
+            m0,k0,S0,nu0 = self._hyperparameters[k]
+            rho = self._posterior_predictive(self.x[n],idx,m0,k0,S0,nu0) * Nk
+        return rho
+
     def _sample_z_one(self,n):
         denominator = self.N + self._parameters['alpha'] - 1
         K_total = self.K + 1
@@ -101,24 +459,17 @@ class DP_GMM(GibbsDirichletProcess):
 
         rho = np.zeros(K_total)
         for k in range(self.K):
-            idx = self._parameters['z'] == k
-            idx[n] = False
-            Nk = idx.sum() 
+            rho[k] = self._get_rho_one(n,k)
 
-            if Nk > 0:
-                m0,k0,S0,nu0 = self._hyperparameters[k]
-                rho[k] = self._posterior_predictive(self.x[n],idx,m0,k0,S0,nu0) * Nk / denominator
-
-        
         theta_prior = [[],[]]
         if self.outliers:
             m0,k0,S0,nu0 = self._hyperparameter_lookup[0]
             theta_prior[0] = tuple([m0,k0,S0,nu0])
-            rho[-2] = self._prior_predictive(self.x[n],m0,k0,S0,nu0) * self._parameters['alpha'] / denominator
+            rho[-2] = self._prior_predictive(self.x[n],m0,k0,S0,nu0) * self._parameters['alpha'] 
 
         m0,k0,S0,nu0 = self._hyperparameter_lookup[1]
         theta_prior[1] = tuple([m0,k0,S0,nu0])
-        rho[-1] = self._prior_predictive(self.x[n],m0,k0,S0,nu0) * self._parameters['alpha'] / denominator
+        rho[-1] = self._prior_predictive(self.x[n],m0,k0,S0,nu0) * self._parameters['alpha'] 
 
         rho /= rho.sum()
         _z_now = np.random.multinomial(1,rho).argmax()
@@ -151,7 +502,7 @@ class DP_GMM(GibbsDirichletProcess):
         x = np.zeros((n,self.output_dim))
         for i in range(n):
             z[i] = dp.sample()
-            x[i] = np.random.multivariate_normal(mu[z[i]],Sigma[z[i]])
+            x[i] = mvn.rvs(mu[z[i]],Sigma[z[i]])
         return x, z
 
     def fit(self,x,samples=100):
@@ -165,13 +516,13 @@ class DP_GMM(GibbsDirichletProcess):
             self.K = 0
         super().fit(samples)
 
-    def plot(self):
+    def plot(self,figsize=(5,4),**kwds_scatter):
         z_hat = self._parameters['z'].astype(int)
         K_hat = np.unique(z_hat)
         colors = np.array(['r','g','b','m','y','k','orange']*30)
-        plt.figure(figsize=(5,4))
+        plt.figure(figsize=figsize)
         if self.output_dim == 2:
-            plt.scatter(self.x[:,0],self.x[:,1],c=colors[z_hat])
+            plt.scatter(self.x[:,0],self.x[:,1],c=colors[z_hat],**kwds_scatter)
             for k in (K_hat):
                 if self._kinds[k] == 0:
                     linestyle = 'dashed'
@@ -184,6 +535,9 @@ class DP_GMM(GibbsDirichletProcess):
                 S_x *= nu_x/(nu_x - 2)
 
                 plot_cov_ellipse(mu_x,S_x,facecolor='none',edgecolor=colors[k],linestyle=linestyle)
+
+            plt.xlabel('$y_1$')
+            plt.ylabel('$y_2$')
         elif self.output_dim == 1:
             _x = np.linspace(self.x.min(),self.x.max(),128)
             plt.scatter(self.x,self.x*0,c=colors[z_hat])
@@ -195,5 +549,301 @@ class DP_GMM(GibbsDirichletProcess):
                 S_x *= nu_x/(nu_x - 2)
                 _px = norm.pdf(_x,mu_x.ravel(),S_x.ravel())
                 plt.plot(_x,_px,color=colors[k])
-        plt.grid()
         plt.tight_layout()
+
+
+
+
+
+class BLDS(Gibbs):
+    r'''
+        Bayesian linear dynamical system.
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+
+        Examples
+        --------
+        Import package
+        >>> from gibbs import HMM, hmm_generate
+
+        Generate data
+        >>> x = hmm_generate(200)[0]
+        Create model
+        >>> model = HMM(output_dim=2)
+        Fit the model to the data using the Gibbs sampler.
+        >>> model.fit(x,samples=20)
+        >>> model.plot()
+        >>> model.plot_samples()
+    '''
+    def __init__(self,output_dim=1,state_dim=2,parameter_sampling=True,system_covariance=False):
+        super().__init__()
+        self._dimy = output_dim
+        self._dimx = state_dim
+        self.parameter_sampling = parameter_sampling
+        self.system_cov = system_covariance
+
+        self.register_parameter("x",None)
+        self.initialize()
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize_output_model()
+
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+            self.initialize_state_model()
+            self.initialize_prior_model()
+    @property
+    def output(self):
+        y_hat = np.zeros((self.T,self.output_dim))
+        for t in range(self.T):
+            y_hat[t] = self._emission(t)
+        return y_hat
+
+    def initialize(self):
+        self.initialize_system_model()
+        self.initialize_output_model()
+
+    def initialize_system_model(self):
+        A = np.eye(self.state_dim)
+        Q = np.eye(self.state_dim)
+        m0 = np.zeros(self.state_dim)
+
+        self.register_parameter("A",A.copy())
+        self.register_parameter("Q",Q.copy())
+
+        self.register_parameter("m0",m0.copy())
+        self.register_parameter("P0",Q.copy())
+        self.I = np.eye(self.state_dim)
+
+        self.register_parameter('alpha',np.ones((self.state_dim)))
+        self.register_parameter('beta',np.ones(self.state_dim))
+
+    def initialize_output_model(self):
+
+        self.nu0 = self.output_dim+1
+        self.iW0 = np.eye(self.output_dim)
+        Sigma0 = np.eye(self.output_dim)
+
+        C0 = np.random.uniform(-1,1,(self.output_dim,self.state_dim))
+        self.register_parameter("C",C0)
+        self.register_parameter("R",Sigma0)
+
+    def _sample_A(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        Qi = la.inv(self.Q)
+        Alpha = np.diag(self.alpha)
+        for row in range(self.state_dim):
+            ell = Qi[row,row] * (self.x[1:,row] @ self.x[:-1])
+            Lam = Qi[row,row] * (self.x[:-1].T @ self.x[:-1]) + Alpha
+            Sigma = la.inv(Lam)
+            mu = Sigma @ ell
+            self._parameters['A'][row] = mvn.rvs(mu,Sigma)
+
+    def _sample_C(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        Ri = la.inv(self.R)
+        Beta = np.diag(self.beta)
+        for row in range(self.output_dim):
+            ell = Ri[row,row] * (self.y[:,0,row].T @ self.x)
+            Lam = Ri[row,row] * (self.x.T @ self.x) + Beta
+            Sigma = la.inv(Lam)
+            mu = Sigma @ ell
+            self._parameters['C'][row] = mvn.rvs(mu,Sigma)
+
+    def _sample_alpha(self):
+        a0, b0 = 1,1e-1
+        a = a0 + self.state_dim / 2
+        b = b0 + 1/2*(self.A ** 2.0).sum(0)
+        self._parameters['alpha'] = gamma.rvs(a,scale=1.0/b)
+
+    def _sample_beta(self):
+        a0, b0 = 1,1e-1
+        a = a0 + self.output_dim / 2
+        b = b0 + 1/2*(self.C ** 2.0).sum(0)
+        self._parameters['beta'] = gamma.rvs(a,scale=1.0/b)
+
+    def _sample_R(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        Nk = self.T + 0
+        nu = self.nu0 + Nk
+
+        x_eps = self.y[:,0] - self.x @ self.C.T
+        iW = self.iW0 + x_eps.T @ x_eps
+        iW = .5*(iW + iW.T)
+        W = la.inv(iW)
+
+        Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W) )
+        self._parameters['R'] = la.inv(Lambda)
+
+    def _sample_Q(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        if self.system_cov is True:
+            nu0 = self.state_dim + 1.0
+            iW0 = np.eye(self.state_dim)*1e-1
+
+            Nk = self.T-1
+            nu = nu0 + Nk
+
+            x_eps = self.x[1:] - self.x[:-1] @ self.A.T
+            iW = iW0 + x_eps.T @ x_eps
+            iW = 0.5*(iW + iW.T)
+            W = la.inv(iW)
+
+            Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W) )
+            self._parameters['Q'] = la.inv(Lambda)
+
+    def _sample_m0(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        P0i = la.inv(self.P0)
+        Lam0 = np.eye(self.state_dim)
+        ell = P0i @ self.x[0]
+        Lam = P0i + Lam0
+        Sigma = la.inv(Lam)
+        mu = Sigma @ ell
+        self._parameters['m0'] = mvn.rvs(mu,Sigma)
+
+    def _sample_P0(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        nu0 = self.state_dim + 1.0
+        iW0 = np.eye(self.state_dim)*1e-1
+
+        Nk = 1.0
+        nu = nu0 + Nk
+
+        x_eps = self.x[0] - self.m0
+        iW = iW0 + x_eps[:,None] @ x_eps[None,:]
+        iW = .5*(iW + iW.T)
+        W = la.inv(iW)
+
+        Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W) )
+        self._parameters['P0'] = la.inv(Lambda)
+
+    def transition(self,z):
+        return self.A @ z
+        
+    def emission(self,z):
+        return self.C @ z
+    
+    def predict(self,mu,V):
+        m = self.transition(mu)
+        P = self.A @ V @ self.A.conj().T+ self.Q
+        return m, (P)
+
+    def update(self,y,m,P):
+        y_hat = self.emission(m)
+        Sigma_hat = self.C @ P @ self.C.conj().T + self.R
+        K = la.solve(Sigma_hat, self.C @ P).conj().T
+        mu = m + K @ (y[0] - y_hat)
+        V = (self.I - K @ self.C) @ P
+        return mu, (V)
+
+    def update_multi(self,y,m,P):
+        Lam = la.inv(P)
+        ell = Lam @ m
+
+        RC = la.solve(self.R,self.C)
+
+        ell += RC.T @ y.sum(0)
+        Lam += self.C.T @ RC * y.shape[0]
+
+        V = la.inv(V)
+        mu = V @ ell
+        return mu, V
+
+    def _forward(self):
+        mu = np.zeros((self.T,self.state_dim))
+        V = np.zeros((self.T,self.state_dim,self.state_dim))
+        m = self.m0.copy()
+        P = self.P0.copy()
+        for n in range(self.T):
+            ''' update'''
+            mu[n], V[n] = self.update(self.y[n],m,P)
+            ''' predict '''
+            m,P = self.predict(mu[n], V[n])
+        return mu, V
+
+    def _sample_x(self):
+        mu, V = self._forward()
+        self._parameters['x'][-1] = mvn.rvs(mu[-1],V[-1])
+        for t in range(self.T-2,-1,-1):
+            m = self.A @ mu[t]
+            P = self.A @ V[t] @ self.A.T + self.Q
+            K_star = V[t] @ self.A.T @ la.inv(P)
+
+            mu[t] = mu[t] + K_star @ (self.x[t+1] - m)
+            V[t] = (self.I - K_star @ self.A) @ V[t]
+            self._parameters['x'][t] = mvn.rvs(mu[t],V[t])
+
+    def fit(self,y,delta=None,samples=10):
+        self.y = y.copy()
+        self.T, self.N, self.output_dim = y.shape
+
+        if delta is None:
+            delta = np.ones((self.T,self.N))
+        if delta.ndim == 1:
+            delta = delta[:,None] + np.zeros((1,self.N))
+        self.delta = delta.astype(bool).copy()
+
+        if self._parameters["x"] is None:
+            self._parameters["x"] = np.random.multivariate_normal(self.m0, self.P0, self.T)
+        super().fit(samples)
+
+    def generate(self,T):
+        y = np.zeros((T,self.output_dim))
+        y_clean = y.copy()
+        x = np.zeros((T,self.state_dim))
+        for n in range(T):
+            if n == 0:
+                x[n] = mvn.rvs(self.m0,self.P0)
+            else:
+                x[n] = mvn.rvs(self.transition(x[n-1]), self.Q)
+            y_clean[n] = self.emission(x[n])
+            y[n] = mvn.rvs(y_clean[n], self.R)
+        return y, y_clean, x
+
+    def plot_samples(self, params=None):
+        if params in self._samples:
+            k = list(params)
+        else:
+            k = self._samples.keys()
+        n = len(k)
+        fig,ax = plt.subplots(n,figsize=(5,n*1.5))
+        ax = np.atleast_1d(ax)
+        for j,s in enumerate(k):
+            stacked = np.stack(self._samples[s],0)
+            if s == 'x':
+                ax[j].plot(stacked.transpose(1,0,2)[:,:,0],'b',alpha=.1)
+                ax[j].plot(self._estimates['x'][:,0],'k')
+            else:
+                ax[j].plot(stacked.reshape(stacked.shape[0],-1),'k',alpha=.1,linewidth=1)
+            ax[j].set_title(s)
+        ax[-1].set_xlabel('step')
+        plt.tight_layout()
+        

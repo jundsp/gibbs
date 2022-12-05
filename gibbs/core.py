@@ -5,6 +5,7 @@ from scipy.special import logsumexp
 from scipy.stats import multinomial, gamma, beta
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from .utils import get_mean,get_median
 
 
 class Gibbs(object):
@@ -48,19 +49,21 @@ class Gibbs(object):
         else:
             self._parameters[name] = param
 
-    # def __getattr__(self, name: str) -> Any:
-    #     if '_parameters' in self.__dict__:
-    #         _parameters = self.__dict__['_parameters']
-    #         if name in _parameters:
-    #             return _parameters[name]
-    #     raise AttributeError("'{}' object has no attribute '{}'".format(
-    #         type(self).__name__, name))
+    # Used as a shortcut to get parameters : self._parameters['mu'] ==> self.mu
+    def __getattr__(self, name: str):
+        if '_parameters' in self.__dict__:
+            _parameters = self.__dict__['_parameters']
+            if name in _parameters:
+                return _parameters[name]
+        raise AttributeError("'{}' object has no attribute '{}'".format(
+            type(self).__name__, name))
 
-    # def __setattr__(self, __name: str, __value: Any) -> None:
-    #     if '_parameters' in self.__dict__:
-    #         if __name in self._parameters:
-    #             raise AttributeError("Parameter '{}' must be set with '._parameters[key] = value'".format(__name))
-    #     self.__dict__[__name] = __value
+    # Used to ensure that parameters are set explicity, and not overwritten.
+    def __setattr__(self, __name: str, __value) -> None:
+        if '_parameters' in self.__dict__:
+            if __name in self._parameters:
+                raise AttributeError("Parameter '{}' must be set with '._parameters[key] = value'".format(__name))
+        self.__dict__[__name] = __value
 
     def _append(self):
         for p in self._parameters:
@@ -68,12 +71,32 @@ class Gibbs(object):
                 self._samples[p] = []
             self._samples[p].append(self._parameters[p].copy())
 
-    def _get_median(self,burn_rate=.75,skip_sample=1):
+    def _get_estimate(self,reduction='median',burn_rate=.75,skip_rate=1):
+        if reduction == 'median':
+            estim_fun = get_median
+        else:
+            estim_fun = get_mean
+            
+        skip_rate = int(max(skip_rate,1))
+
         for p in self._samples:
             num_samples = len(self._samples[p])
             burn_in = int(num_samples * burn_rate)
-            stacked = np.stack(self._samples[p][burn_in::skip_sample],0)
-            self._estimates[p] = np.median(stacked,0).astype(stacked.dtype)
+            stacked = np.stack(self._samples[p][burn_in::skip_rate],0)
+            self._estimates[p] = estim_fun(stacked)
+
+    def get_chain(self,burn_rate=0,skip_rate=1,flatten=False):
+        chain = {}        
+        skip_rate = int(max(skip_rate,1))
+        for p in self._samples:
+            num_samples = len(self._samples[p])
+            burn_in = int(num_samples * burn_rate)
+            stacked = np.stack(self._samples[p][burn_in::skip_rate],0)
+            if flatten is True:
+                stacked = stacked.ravel()    
+            chain[p] = stacked.copy()
+        return chain 
+
 
     def _sample(self):
         for p in self._parameters:
@@ -83,11 +106,11 @@ class Gibbs(object):
             else:
                 print("Sampler for parameter '{}' is not implemented.".format(p))
         
-    def fit(self,samples=100,burn_rate=.5):
+    def fit(self,samples=100,burn_rate=.75):
         for s in tqdm(range(samples)):
             self._sample()
             self._append()
-        self._get_median(burn_rate=burn_rate)
+        self._get_estimate(reduction='median',burn_rate=burn_rate)
 
     def __dir__(self) -> Iterable[str]:
         return list(self._parameters.keys())
@@ -97,6 +120,26 @@ class Gibbs(object):
         for i in self._estimates.keys():
             output += " " + i +  " =  " + str(self._parameters[i]) + " \n"
         return output
+
+    def plot_samples(self,params=None):
+        if params in self._samples:
+            k = list(params)
+        else:
+            k = self._samples.keys()
+        n = len(k)
+        fig,ax = plt.subplots(n,figsize=(5,n*1.5))
+        ax = np.atleast_1d(ax)
+        for j,s in enumerate(k):
+            stacked = np.stack(self._samples[s],0)
+            if s == 'z':
+                ax[j].plot(stacked.transpose(1,0),'b',alpha=.05)
+                ax[j].plot(self._estimates['z'],'k')
+            else:
+                ax[j].plot(stacked.reshape(stacked.shape[0],-1),'k',alpha=.1,linewidth=1)
+            ax[j].set_title(s)
+            # ax[j].set_ylim(0)
+        ax[-1].set_xlabel('step')
+        plt.tight_layout()
 
 class GibbsDirichletProcess(Gibbs):
     '''
@@ -147,20 +190,10 @@ class GibbsDirichletProcess(Gibbs):
         if "_hyperparameters" in self.__dict__:
             if len(self._hyperparameters) > 0:
                 self._hyperparameters = [self._hyperparameters[k] for k in z_active]
+        
         if "_kinds" in self.__dict__:
             if len(self._kinds) > 0:
                 self._kinds = [self._kinds[k] for k in z_active]
-
-    def plot_samples(self):
-        n = len(self._samples)
-        fig,ax = plt.subplots(n,figsize=(5,n*1.5))
-        for j,s in enumerate(self._samples):
-            stacked = np.stack(self._samples[s],0)
-            ax[j].plot(stacked,'k',alpha=.5)
-            ax[j].set_title(s)
-            ax[j].set_ylim(0)
-        ax[-1].set_xlabel('step')
-        plt.tight_layout()
 
 
 class DirichletProcess(object):
