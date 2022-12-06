@@ -411,7 +411,6 @@ class DP_GMM(GibbsDirichletProcess):
         
         return m0,k0,S0,nu0
 
-        
     def _posterior(self,idx,m0,k0,S0,nu0):
         N = idx.sum()
         xk = np.atleast_2d(self.x[idx])
@@ -553,6 +552,123 @@ class DP_GMM(GibbsDirichletProcess):
 
 
 
+class NormalParameters(Gibbs):
+    r'''
+        Bayesian linear dynamical system parameters
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+    '''
+    def __init__(self,output_dim=1,input_dim=1,parameter_sampling=True,hyperparameter_sampling=True,system_covariance=True):
+        super(NormalParameters,self).__init__()
+        self._dimo = output_dim
+        self._dimi = input_dim
+        self.parameter_sampling = parameter_sampling
+        self.hyperparameter_sampling = hyperparameter_sampling
+        self.system_cov = system_covariance
+
+        self.initialize()
+
+    @property
+    def output_dim(self):
+        return self._dimo
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimo:
+            self._dimo = value
+            self.initialize()
+
+    @property
+    def input_dim(self):
+        return self._dimi
+    @input_dim.setter
+    def input_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self.dimi:
+            self._dimi = value
+            self.initialize()
+
+    def initialize(self):
+        A = np.random.uniform(-1,1,(self.output_dim,self.input_dim))
+        Q = np.eye(self.output_dim)
+        alpha = np.ones((self.input_dim))*1e-1
+
+        self.register_parameter("A",A.copy())
+        self.register_parameter("Q",Q.copy())
+        self.register_parameter('alpha',alpha.copy())
+
+        self.a0 = np.ones(1)
+        self.b0 = np.ones(1)
+
+    def _sample_A(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        tau = 1.0 / np.diag(self.Q)
+        Alpha = np.diag(self.alpha)
+        rz,cz = self.delta
+        for row in range(self.output_dim):
+            ell = tau[row] * (self.y[rz,cz,row] @ self.x[rz,cz])
+            Lam = tau[row] * ( (self.x[rz,cz].T @ self.x[rz,cz]) + Alpha )
+            Sigma = la.inv(Lam)
+            mu = Sigma @ ell
+            self._parameters['A'][row] = mvn.rvs(mu,Sigma)
+
+    def _sample_Q(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        rz,cz = self.delta
+
+        Nk = len(rz) + self.input_dim
+        x_eps = self.y[rz,cz] - self.x[rz,cz] @ self.A.T
+        quad = np.diag(x_eps.T @ x_eps) + np.diag(self.A @ np.diag(self.alpha) @ self.A.T)
+
+        a_hat = self.a0 + 1/2 * Nk
+        b_hat = self.b0 + 1/2 * quad
+
+        tau = np.atleast_1d(gamma.rvs(a_hat,scale=1/b_hat))
+        self._parameters['Q'] = np.diag(1/tau)
+
+    def _sample_alpha(self):
+        if self.hyperparameter_sampling is False:
+            return 0
+
+        # The marginal prior over A is then a Cauchy distribution: N(a,|0,1/alpha)Gam(alpha|.5,.5) => Cauchy(a)
+        a0, b0 = .5,.5
+        a = np.zeros(self.input_dim)
+        b = np.zeros(self.input_dim)
+        tau = 1.0 / np.diag(self.Q)
+        for col in range(self.input_dim):
+            a[col] = a0 + 1/2*self.output_dim
+            b[col] = b0 + 1/2*(tau * (self.A[:,col] ** 2.0)).sum(0)
+        self._parameters['alpha'] = np.atleast_1d(gamma.rvs(a,scale=1.0/b))
+
+    def add_data(self,y,x,delta=None):
+        if x.ndim != y.ndim:
+            raise ValueError("# of dims of output must equal input")
+        if x.ndim == 2:
+            x = np.expand_dims(x,1)
+            y = np.expand_dims(y,1)
+        if x.shape[:2] != y.shape[:2]:
+            raise ValueError("First two dims of output and input must be equal")
+
+        self.x = x.copy()
+        self.y = y.copy()
+        self.input_dim = x.shape[-1]
+        self.T, self.N, self.output_dim = y.shape
+
+        if delta is None:
+            delta = np.ones((self.T,self.N))
+        if delta.ndim == 1:
+            delta = delta[:,None] + np.zeros((1,self.N))
+        self.delta = np.nonzero(delta.astype(bool))
+
+    def fit(self,y,x,delta=None,samples=10):
+        self.add_data(y=y,x=x,delta=delta)
+        super().fit(samples)
 
 
 class BLDS(Gibbs):
@@ -562,26 +678,13 @@ class BLDS(Gibbs):
         Gibbs sampling. 
 
         Author: Julian Neri, 2022
-
-        Examples
-        --------
-        Import package
-        >>> from gibbs import HMM, hmm_generate
-
-        Generate data
-        >>> x = hmm_generate(200)[0]
-        Create model
-        >>> model = HMM(output_dim=2)
-        Fit the model to the data using the Gibbs sampler.
-        >>> model.fit(x,samples=20)
-        >>> model.plot()
-        >>> model.plot_samples()
     '''
-    def __init__(self,output_dim=1,state_dim=2,parameter_sampling=True,system_covariance=False):
-        super().__init__()
+    def __init__(self,output_dim=1,state_dim=2,parameter_sampling=True,hyperparameter_sampling=True,system_covariance=True):
+        super(BLDS,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
         self.parameter_sampling = parameter_sampling
+        self.hyperparameter_sampling = hyperparameter_sampling
         self.system_cov = system_covariance
 
         self.register_parameter("x",None)
@@ -621,7 +724,7 @@ class BLDS(Gibbs):
     def initialize_system_model(self):
         A = np.eye(self.state_dim)
         Q = np.eye(self.state_dim)
-        m0 = np.zeros(self.state_dim)
+        m0 = np.random.normal(0,1,self.state_dim)
 
         self.register_parameter("A",A.copy())
         self.register_parameter("Q",Q.copy())
@@ -630,8 +733,8 @@ class BLDS(Gibbs):
         self.register_parameter("P0",Q.copy())
         self.I = np.eye(self.state_dim)
 
-        self.register_parameter('alpha',np.ones((self.state_dim)))
-        self.register_parameter('beta',np.ones(self.state_dim))
+        self.register_parameter('alpha',1e-1*np.ones((self.state_dim)))
+        self.register_parameter('beta',1e-1*np.ones(self.state_dim))
 
     def initialize_output_model(self):
 
@@ -663,19 +766,26 @@ class BLDS(Gibbs):
         Ri = la.inv(self.R)
         Beta = np.diag(self.beta)
         for row in range(self.output_dim):
-            ell = Ri[row,row] * (self.y[:,0,row].T @ self.x)
-            Lam = Ri[row,row] * (self.x.T @ self.x) + Beta
-            Sigma = la.inv(Lam)
+            ell, Lam = 0,0
+            for m in range(self.y.shape[1]):
+                t_ = self.delta[:,m]
+                ell += Ri[row,row] * (self.y[t_,m,row].T @ self.x[t_])
+                Lam += Ri[row,row] * (self.x[t_].T @ self.x[t_])
+            Sigma = la.inv(Lam + Beta)
             mu = Sigma @ ell
             self._parameters['C'][row] = mvn.rvs(mu,Sigma)
 
     def _sample_alpha(self):
+        if self.hyperparameter_sampling is False:
+            return 0
         a0, b0 = 1,1e-1
         a = a0 + self.state_dim / 2
         b = b0 + 1/2*(self.A ** 2.0).sum(0)
         self._parameters['alpha'] = gamma.rvs(a,scale=1.0/b)
 
     def _sample_beta(self):
+        if self.hyperparameter_sampling is False:
+            return 0
         a0, b0 = 1,1e-1
         a = a0 + self.output_dim / 2
         b = b0 + 1/2*(self.C ** 2.0).sum(0)
@@ -684,12 +794,16 @@ class BLDS(Gibbs):
     def _sample_R(self):
         if self.parameter_sampling is False:
             return 0
+       
+        y_hat = np.expand_dims(self.x @ self.C.T,1)
+        x_eps = (self.y - y_hat).reshape(-1,y_hat.shape[-1])
+        x_eps = x_eps[self.delta.ravel()]
 
-        Nk = self.T + 0
+        Nk = x_eps.shape[0]
         nu = self.nu0 + Nk
 
-        x_eps = self.y[:,0] - self.x @ self.C.T
-        iW = self.iW0 + x_eps.T @ x_eps
+        quad = x_eps.T @ x_eps
+        iW = self.iW0 + quad
         iW = .5*(iW + iW.T)
         W = la.inv(iW)
 
@@ -757,25 +871,31 @@ class BLDS(Gibbs):
         return m, (P)
 
     def update(self,y,m,P):
+        if (y.ndim == 1):
+            return self.update_one(y,m,P)
+        else:
+            return self.update_multiple(y,m,P)
+
+    def update_single(self,y,m,P):
         y_hat = self.emission(m)
         Sigma_hat = self.C @ P @ self.C.conj().T + self.R
         K = la.solve(Sigma_hat, self.C @ P).conj().T
-        mu = m + K @ (y[0] - y_hat)
+        mu = m + K @ (y - y_hat)
         V = (self.I - K @ self.C) @ P
         return mu, (V)
 
-    def update_multi(self,y,m,P):
+    def update_multiple(self,y,m,P):
+        N = y.shape[0]
+        CR = self.C.T @ la.inv(self.R)
+        CRC = CR @ self.C
+
         Lam = la.inv(P)
         ell = Lam @ m
-
-        RC = la.solve(self.R,self.C)
-
-        ell += RC.T @ y.sum(0)
-        Lam += self.C.T @ RC * y.shape[0]
-
-        V = la.inv(V)
+        ell += CR @ y.sum(0)
+        Lam += CRC * N
+        V = la.inv(Lam)
         mu = V @ ell
-        return mu, V
+        return mu, (V)
 
     def _forward(self):
         mu = np.zeros((self.T,self.state_dim))
@@ -784,7 +904,7 @@ class BLDS(Gibbs):
         P = self.P0.copy()
         for n in range(self.T):
             ''' update'''
-            mu[n], V[n] = self.update(self.y[n],m,P)
+            mu[n], V[n] = self.update(self.y[n,self.delta[n]],m,P)
             ''' predict '''
             m,P = self.predict(mu[n], V[n])
         return mu, V
@@ -801,7 +921,7 @@ class BLDS(Gibbs):
             V[t] = (self.I - K_star @ self.A) @ V[t]
             self._parameters['x'][t] = mvn.rvs(mu[t],V[t])
 
-    def fit(self,y,delta=None,samples=10):
+    def add_data(self,y,delta=None):
         self.y = y.copy()
         self.T, self.N, self.output_dim = y.shape
 
@@ -811,8 +931,13 @@ class BLDS(Gibbs):
             delta = delta[:,None] + np.zeros((1,self.N))
         self.delta = delta.astype(bool).copy()
 
+    def init_samples(self):
         if self._parameters["x"] is None:
             self._parameters["x"] = np.random.multivariate_normal(self.m0, self.P0, self.T)
+
+    def fit(self,y,delta=None,samples=10):
+        self.add_data(y,delta=delta)
+        self.init_samples()
         super().fit(samples)
 
     def generate(self,T):
