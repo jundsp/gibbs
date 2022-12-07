@@ -2,13 +2,11 @@ import numpy as np
 from scipy.stats import multivariate_t, norm, wishart, multinomial, dirichlet, gamma
 from scipy.stats import multivariate_normal as mvn
 from scipy.special import logsumexp
+import scipy.linalg as la
 import matplotlib.pyplot as plt
 
-from .core import GibbsDirichletProcess, DirichletProcess, Gibbs
-from .utils import plot_cov_ellipse
-from multiprocessing import Pool
-import scipy.linalg as la
-import os
+from ..core import GibbsDirichletProcess, DirichletProcess, Gibbs
+from ..utils import plot_cov_ellipse
 
 class GMM(Gibbs):
     r'''
@@ -351,8 +349,6 @@ class HMM(Gibbs):
         plt.ylabel('$y_2$')
         plt.tight_layout()
 
-
-
 class DP_GMM(GibbsDirichletProcess):
     r'''
     Infinite Gaussian mixture model.
@@ -383,7 +379,6 @@ class DP_GMM(GibbsDirichletProcess):
         self._hyperparameters = []
         self._kinds = []
         self._init_prior()
-        self.pool = Pool(os.cpu_count())
   
     def _init_prior(self):
         self._hyperparameter_lookup = [[],[]]
@@ -591,7 +586,9 @@ class NormalParameters(Gibbs):
             self.initialize()
 
     def initialize(self):
-        A = np.random.uniform(-1,1,(self.output_dim,self.input_dim))
+        A = np.eye(self.output_dim,self.input_dim)
+        A += np.random.normal(0,1e-3,A.shape)
+        A /= np.abs(A).sum(-1)[:,None]
         Q = np.eye(self.output_dim)
         alpha = np.ones((self.input_dim))*1e-1
 
@@ -599,8 +596,13 @@ class NormalParameters(Gibbs):
         self.register_parameter("Q",Q.copy())
         self.register_parameter('alpha',alpha.copy())
 
-        self.a0 = np.ones(1)
-        self.b0 = np.ones(1)
+        nu = self.output_dim + 1.0
+        v = 1.0
+
+        self.a0 = nu / 2.0
+        self.b0 = 1.0 / (2*v)
+
+        self.A0 = np.eye(self.output_dim,self.input_dim)*0
 
     def _sample_A(self):
         if self.parameter_sampling is False:
@@ -608,10 +610,9 @@ class NormalParameters(Gibbs):
 
         tau = 1.0 / np.diag(self.Q)
         Alpha = np.diag(self.alpha)
-        rz,cz = self.delta
         for row in range(self.output_dim):
-            ell = tau[row] * (self.y[rz,cz,row] @ self.x[rz,cz])
-            Lam = tau[row] * ( (self.x[rz,cz].T @ self.x[rz,cz]) + Alpha )
+            ell = tau[row] * (self.y[:,row] @ self.x + Alpha @ self.A0[row])
+            Lam = tau[row] *  ( (self.x.T @ self.x) + Alpha )
             Sigma = la.inv(Lam)
             mu = Sigma @ ell
             self._parameters['A'][row] = mvn.rvs(mu,Sigma)
@@ -620,11 +621,9 @@ class NormalParameters(Gibbs):
         if self.parameter_sampling is False:
             return 0
 
-        rz,cz = self.delta
-
-        Nk = len(rz) + self.input_dim
-        x_eps = self.y[rz,cz] - self.x[rz,cz] @ self.A.T
-        quad = np.diag(x_eps.T @ x_eps) + np.diag(self.A @ np.diag(self.alpha) @ self.A.T)
+        Nk = self.N + self.input_dim
+        x_eps = self.y - self.x @ self.A.T
+        quad = np.diag(x_eps.T @ x_eps) + np.diag((self.A-self.A0) @ np.diag(self.alpha) @ (self.A-self.A0).T)
 
         a_hat = self.a0 + 1/2 * Nk
         b_hat = self.b0 + 1/2 * quad
@@ -643,32 +642,138 @@ class NormalParameters(Gibbs):
         tau = 1.0 / np.diag(self.Q)
         for col in range(self.input_dim):
             a[col] = a0 + 1/2*self.output_dim
-            b[col] = b0 + 1/2*(tau * (self.A[:,col] ** 2.0)).sum(0)
+            b[col] = b0 + 1/2*( ((self.A[:,col]-self.A0[:,col]) ** 2.0)).sum(0)
         self._parameters['alpha'] = np.atleast_1d(gamma.rvs(a,scale=1.0/b))
 
-    def add_data(self,y,x,delta=None):
+    def add_data(self,y,x):
+        if x.ndim != 2:
+            raise ValueError('input must be 2d')
+        if y.ndim != 2:
+            raise ValueError('output must be 2d')
         if x.ndim != y.ndim:
             raise ValueError("# of dims of output must equal input")
-        if x.ndim == 2:
-            x = np.expand_dims(x,1)
-            y = np.expand_dims(y,1)
-        if x.shape[:2] != y.shape[:2]:
-            raise ValueError("First two dims of output and input must be equal")
+        if x.shape[0] != y.shape[0]:
+            raise ValueError("First dim of output and input must be equal")
 
         self.x = x.copy()
         self.y = y.copy()
         self.input_dim = x.shape[-1]
-        self.T, self.N, self.output_dim = y.shape
+        self.N, self.output_dim = y.shape
 
-        if delta is None:
-            delta = np.ones((self.T,self.N))
-        if delta.ndim == 1:
-            delta = delta[:,None] + np.zeros((1,self.N))
-        self.delta = np.nonzero(delta.astype(bool))
-
-    def fit(self,y,x,delta=None,samples=10):
-        self.add_data(y=y,x=x,delta=delta)
+    def fit(self,y,x,samples=10):
+        self.add_data(y=y,x=x)
         super().fit(samples)
+
+
+
+class NormalWishParams(Gibbs):
+    r'''
+        Bayesian linear dynamical system parameters
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+    '''
+    def __init__(self,output_dim=1,input_dim=1,parameter_sampling=True,hyperparameter_sampling=True,system_covariance=True):
+        super(NormalWishParams,self).__init__()
+        self._dimo = output_dim
+        self._dimi = input_dim
+        self.parameter_sampling = parameter_sampling
+        self.hyperparameter_sampling = hyperparameter_sampling
+        self.system_cov = system_covariance
+
+        self.initialize()
+
+    @property
+    def output_dim(self):
+        return self._dimo
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimo:
+            self._dimo = value
+            self.initialize()
+
+    @property
+    def input_dim(self):
+        return self._dimi
+    @input_dim.setter
+    def input_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self.dimi:
+            self._dimi = value
+            self.initialize()
+
+    def initialize(self):
+        A = np.eye(self.output_dim,self.input_dim)
+        A += np.random.normal(0,1e-3,A.shape)
+        A /= np.abs(A).sum(-1)[:,None]
+        Q = np.eye(self.output_dim)
+        alpha = np.ones((self.input_dim))*1e-1
+
+        self.register_parameter("A",A.copy())
+        self.register_parameter("Q",Q.copy())
+        self.register_parameter('alpha',alpha.copy())
+
+        self.nu0 = self.output_dim+1
+        self.iW0 = np.eye(self.output_dim)
+
+    def _sample_A(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        Qi = la.inv(self.Q)
+        Alpha = np.diag(self.alpha)
+        for row in range(self.output_dim):
+            ell = Qi[row,row] * (self.y[:,row].T @ self.x)
+            Lam = Qi[row,row] * (self.x.T @ self.x)
+            Sigma = la.inv(Lam + Alpha)
+            mu = Sigma @ ell
+            self._parameters['A'][row] = mvn.rvs(mu,Sigma)
+
+    def _sample_Q(self):
+        if self.parameter_sampling is False:
+            return 0
+
+        nu = self.nu0 + self.N
+
+        y_hat = (self.x @ self.A.T)
+        x_eps = (self.y - y_hat)
+        quad = x_eps.T @ x_eps
+        iW = self.iW0 + quad
+        iW = .5*(iW + iW.T)
+        W = la.inv(iW)
+
+        Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W) )
+        self._parameters['Q'] = la.inv(Lambda)
+
+    def _sample_alpha(self):
+        if self.hyperparameter_sampling is False:
+            return 0
+        a0, b0 = 1,1e-1
+        a = a0 + self.output_dim / 2
+        b = b0 + 1/2*(self.A ** 2.0).sum(0)
+        self._parameters['alpha'] = np.atleast_1d(gamma.rvs(a,scale=1.0/b))
+
+    def add_data(self,y,x):
+        if x.ndim != 2:
+            raise ValueError('input must be 2d')
+        if y.ndim != 2:
+            raise ValueError('output must be 2d')
+        if x.ndim != y.ndim:
+            raise ValueError("# of dims of output must equal input")
+        if x.shape[0] != y.shape[0]:
+            raise ValueError("First dim of output and input must be equal")
+
+        self.x = x.copy()
+        self.y = y.copy()
+        self.input_dim = x.shape[-1]
+        self.N, self.output_dim = y.shape
+
+    def fit(self,y,x,samples=10):
+        self.add_data(y=y,x=x)
+        super().fit(samples)
+        
 
 
 class BLDS(Gibbs):
@@ -972,3 +1077,229 @@ class BLDS(Gibbs):
         ax[-1].set_xlabel('step')
         plt.tight_layout()
         
+
+
+
+
+
+
+class BLDS2(Gibbs):
+    r'''
+        Bayesian linear dynamical system.
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+    '''
+    def __init__(self,output_dim=1,state_dim=2,switch_dim=1,parameter_sampling=True,hyperparameter_sampling=True,system_covariance=True):
+        super(BLDS2,self).__init__()
+        self._dimy = output_dim
+        self._dimx = state_dim
+        self._dimz = switch_dim
+        self.parameter_sampling = parameter_sampling
+        self.hyperparameter_sampling = hyperparameter_sampling
+        self.system_cov = system_covariance
+
+        self.I = np.eye(self.state_dim)
+
+        self.register_parameter("x",None)
+
+        kwds_param = dict(parameter_sampling=self.parameter_sampling,hyperparameter_sampling=self.hyperparameter_sampling)
+        
+        self.mod_out = NormalWishParams(output_dim=self.output_dim,input_dim=self.state_dim,**kwds_param)
+        self.mod_sys = NormalWishParams(output_dim=self.state_dim,input_dim=self.state_dim,**kwds_param)
+        self.mod_prior = NormalWishParams(output_dim=self.state_dim,input_dim=1,**kwds_param)
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+
+    @property
+    def switch_dim(self):
+        return self._dimz
+    @switch_dim.setter
+    def switch_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimz:
+            self._dimz = value
+
+    @property
+    def output(self):
+        y_hat = np.zeros((self.T,self.output_dim))
+        for t in range(self.T):
+            y_hat[t] = self._emission(t)
+        return y_hat
+
+    @property
+    def A(self):
+        return self.mod_sys.A
+    @property
+    def Q(self):
+        return self.mod_sys.Q
+    @property
+    def C(self):
+        return self.mod_out.A
+    @property
+    def R(self):
+        return self.mod_out.Q
+    @property
+    def m0(self):
+        return self.mod_prior.A[:,0]
+    @property
+    def P0(self):
+        return self.mod_prior.Q
+    
+    def transition(self,z):
+        return self.A @ z
+        
+    def emission(self,z):
+        return self.C @ z
+    
+    def predict(self,mu,V):
+        m = self.transition(mu)
+        P = self.A @ V @ self.A.conj().T+ self.Q
+        return m, (P)
+
+    def update(self,y,m,P):
+        if (y.ndim == 1):
+            return self.update_single(y,m,P)
+        else:
+            return self.update_multiple(y,m,P)
+
+    def update_single(self,y,m,P):
+        y_hat = self.emission(m)
+        Sigma_hat = self.C @ P @ self.C.conj().T + self.R
+        K = la.solve(Sigma_hat, self.C @ P).conj().T
+        mu = m + K @ (y - y_hat)
+        V = (self.I - K @ self.C) @ P
+        return mu, (V)
+
+    def update_multiple(self,y,m,P):
+        N = y.shape[0]
+        CR = self.C.T @ la.inv(self.R)
+        CRC = CR @ self.C
+
+        Lam = la.inv(P)
+        ell = Lam @ m
+        ell += CR @ y.sum(0)
+        Lam += CRC * N
+        V = la.inv(Lam)
+        mu = V @ ell
+        return mu, (V)
+
+    def _forward(self):
+        mu = np.zeros((self.T,self.state_dim))
+        V = np.zeros((self.T,self.state_dim,self.state_dim))
+        m = self.m0.copy()
+        P = self.P0.copy()
+        for n in range(self.T):
+            ''' update'''
+            mu[n], V[n] = self.update(self.y[n,self.delta[n]],m,P)
+            ''' predict '''
+            m,P = self.predict(mu[n], V[n])
+        return mu, V
+
+    def _sample_x(self):
+        mu, V = self._forward()
+        self._parameters['x'][-1] = mvn.rvs(mu[-1],V[-1])
+        for t in range(self.T-2,-1,-1):
+            m = self.A @ mu[t]
+            P = self.A @ V[t] @ self.A.T + self.Q
+            K_star = V[t] @ self.A.T @ la.inv(P)
+
+            mu[t] = mu[t] + K_star @ (self.x[t+1] - m)
+            V[t] = (self.I - K_star @ self.A) @ V[t]
+            self._parameters['x'][t] = mvn.rvs(mu[t],V[t])
+
+
+    def _update_mod_out(self):
+        rz,cz = np.nonzero(self.delta)
+        _y = self.y[rz,cz]
+        _x = self.x[rz]
+        self.mod_out.add_data(y=_y,x=_x)
+
+    def _update_mod_sys(self):
+        self.mod_sys.add_data(y=self.x[1:],x=self.x[:-1])
+
+    def _update_mod_prior(self):
+        _y = np.atleast_2d(self.x[0])
+        _x = np.atleast_2d(1.0)
+        self.mod_prior.add_data(y=_y,x=_x)
+
+    def add_data(self,y,z=None,delta=None):
+        self.y = y.copy()
+        self.T, self.N, self.output_dim = y.shape
+
+
+        if delta is None:
+            delta = np.ones((self.T,self.N))
+        if delta.ndim == 1:
+            delta = delta[:,None] + np.zeros((1,self.N))
+        self.delta = delta.astype(bool).copy()
+
+        if z is None:
+            z = np.ones(self.T)
+        if z.ndim > 1:
+            raise ValueError("z must be 1d.")
+        if z.max() > self.switch_dim:
+            raise ValueError("model's switch dim less than in z")
+        self.z = z.copy().astype(int)
+
+    def init_samples(self):
+        if self._parameters["x"] is None:
+            self._parameters["x"] = mvn.rvs(self.m0, self.P0, self.T)
+
+    def fit(self,y,z=None,delta=None,samples=10,burn_rate=.75):
+        self.add_data(y,delta=delta,z=z)
+        self.init_samples()
+        super().fit(samples=samples,burn_rate=burn_rate)
+
+    def generate(self,T):
+        y = np.zeros((T,self.output_dim))
+        y_clean = y.copy()
+        x = np.zeros((T,self.state_dim))
+        for n in range(T):
+            if n == 0:
+                x[n] = mvn.rvs(self.m0,self.P0)
+            else:
+                x[n] = mvn.rvs(self.transition(x[n-1]), self.Q)
+            y_clean[n] = self.emission(x[n])
+            y[n] = mvn.rvs(y_clean[n], self.R)
+        return y, y_clean, x
+
+    def plot_samples(self, params=None):
+        if params in self._samples:
+            k = list(params)
+        else:
+            k = self._samples.keys()
+        n = len(k)
+        fig,ax = plt.subplots(n,figsize=(5,n*1.5))
+        ax = np.atleast_1d(ax)
+        for j,s in enumerate(k):
+            stacked = np.stack(self._samples[s],0)
+            if s == 'x':
+                ax[j].plot(stacked.transpose(1,0,2)[:,:,0],'b',alpha=.1)
+                ax[j].plot(self._estimates['x'][:,0],'k')
+            else:
+                ax[j].plot(stacked.reshape(stacked.shape[0],-1),'k',alpha=.1,linewidth=1)
+            ax[j].set_title(s)
+        ax[-1].set_xlabel('step')
+        plt.tight_layout()
+
+        for k in self._modules:
+            self._modules[k].plot_samples()
+         

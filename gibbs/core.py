@@ -7,6 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from .utils import get_mean,get_median
 
+import torch.nn.modules.module
 
 class Gibbs(object):
     r'''
@@ -18,6 +19,7 @@ class Gibbs(object):
         self._parameters = OrderedDict()
         self._samples = OrderedDict()
         self._estimates = OrderedDict()
+        self._modules = OrderedDict()
 
     @property
     def nparams(self):
@@ -49,12 +51,28 @@ class Gibbs(object):
         else:
             self._parameters[name] = param
 
+    def add_module(self, name: str, module: Optional['Gibbs']) -> None:
+        if not isinstance(module, Gibbs) and module is not None:
+            raise TypeError("{} is not a Gibbs subclass".format(
+                module))
+        elif hasattr(self, name) and name not in self._modules:
+            raise KeyError("attribute '{}' already exists".format(name))
+        elif '.' in name:
+            raise KeyError("module name can't contain \".\", got: {}".format(name))
+        elif name == '':
+            raise KeyError("module name can't be empty string \"\"")
+        self._modules[name] = module
+
     # Used as a shortcut to get parameters : self._parameters['mu'] ==> self.mu
     def __getattr__(self, name: str):
         if '_parameters' in self.__dict__:
             _parameters = self.__dict__['_parameters']
             if name in _parameters:
                 return _parameters[name]
+        if '_modules' in self.__dict__:
+            _modules = self.__dict__['_modules']
+            if name in _modules:
+                return _modules[name]
         raise AttributeError("'{}' object has no attribute '{}'".format(
             type(self).__name__, name))
 
@@ -63,13 +81,30 @@ class Gibbs(object):
         if '_parameters' in self.__dict__:
             if __name in self._parameters:
                 raise AttributeError("Parameter '{}' must be set with '._parameters[key] = value'".format(__name))
-        self.__dict__[__name] = __value
+         
+        modules = self.__dict__.get('_modules')
+        if isinstance(__value, Gibbs):
+            if modules is None:
+                raise AttributeError(
+                    "cannot assign module before Gibbs.__init__() call")
+            modules[__name] = __value
+        elif modules is not None and __name in modules:
+            if __value is not None:
+                raise TypeError("cannot assign '{}' as child module '{}' "
+                                "(Gibbs or None expected)"
+                                .format(torch.typename(__value), __name))
+            modules[__name] = __value            
+        else:
+            self.__dict__[__name] = __value
 
     def _append(self):
         for p in self._parameters:
             if p not in self._samples.keys():
                 self._samples[p] = []
             self._samples[p].append(self._parameters[p].copy())
+
+        for m in self._modules:
+            self._modules[m]._append()
 
     def _get_estimate(self,reduction='median',burn_rate=.75,skip_rate=1):
         if reduction == 'median':
@@ -97,7 +132,6 @@ class Gibbs(object):
             chain[p] = stacked.copy()
         return chain 
 
-
     def _sample(self):
         for p in self._parameters:
             _sampler_fn =getattr(self,"_sample_"+p,None)
@@ -105,18 +139,29 @@ class Gibbs(object):
                 _sampler_fn()
             else:
                 print("Sampler for parameter '{}' is not implemented.".format(p))
+
+        for m in self._modules:
+            _updater_fn =getattr(self,"_update_"+m,None)
+            if callable(_updater_fn):
+                _updater_fn()
+                self._modules[m]._sample()
+            else:
+                print("Updater for module '{}' is not implemented.".format(m))
         
+    def _fit_once(self):
+        self._sample()
+        self._append()
+
     def fit(self,samples=100,burn_rate=.75):
         for s in tqdm(range(samples)):
-            self._sample()
-            self._append()
+            self._fit_once()
         self._get_estimate(reduction='median',burn_rate=burn_rate)
-
+    
     def __dir__(self) -> Iterable[str]:
         return list(self._parameters.keys())
 
     def __repr__(self) -> str:
-        output = "Gibbs \n"
+        output = self.__class__.__name__  + " \n"
         for i in self._estimates.keys():
             output += " " + i +  " =  " + str(self._parameters[i]) + " \n"
         return output
