@@ -64,12 +64,14 @@ def gmm_generate(n=100,output_dim=2,n_components=3):
         x[i] = np.random.multivariate_normal(mu[z[i]],Sigma[z[i]])
     return x, z
 
-def hmm_generate(n=100,output_dim=2,n_components=3):
-    Gamma = np.eye(n_components) + 1e-1
-    # Gamma *= 0
-    # Gamma[:-1,1:] = np.eye(n_components-1)
-    # Gamma[-1,0] = 1
-    Gamma /= Gamma.sum(-1)[:,None]
+def hmm_generate(n=100,output_dim=2,n_components=3,expected_duration=10):
+    A_kk = expected_duration / (expected_duration+1)
+    A_jk = 1.0
+    if n_components > 1:
+        A_jk = (1-A_kk) / (n_components-1)
+    Gamma = np.ones((n_components,n_components)) * A_jk
+    np.fill_diagonal(Gamma,A_kk)
+    Gamma /= Gamma.sum(-1).reshape(-1,1)
     pi = np.ones(n_components) / n_components
 
     mu = np.random.normal(0,2,(100,output_dim))

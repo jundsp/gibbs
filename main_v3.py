@@ -11,7 +11,7 @@ import operator
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torch.nn.modules.container
-import torch.optim.optimizer
+
 
 class Gibbs(object):
     r'''
@@ -262,10 +262,12 @@ class Sequential(Module):
         self.add_module(str(len(self)), module)
         return self
 
-    def forward(self,y,labels):
+    def forward(self,data: 'Data',labels):
         for k,m in enumerate(self._modules):
             idx = labels == k
-            self._modules[m](y[idx])
+            _data = Data(y=data.y[idx],t=data.loc[idx])
+            _data.T = data.T+0
+            self._modules[m](_data)
 
 
 
@@ -383,10 +385,11 @@ class NormalWishart(Module):
         Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W) )
         return la.inv(Lambda)
         
-    def forward(self,y,x=None):
-        self.y = y
-        if x is None:
-            x = np.ones((y.shape[0],self.input_dim))
+    def forward(self,data: 'Data'):
+        self.y = data.y
+        if data.x is None:
+            x = np.ones((self.y.shape[0],self.input_dim))
+            
         self.x = x
         self.N = y.shape[0]
         self.sample_A()
@@ -410,8 +413,8 @@ class Mixture(Module):
         self._parameters["pi"] = np.ones(components)/components
         self.alpha0 = np.ones(components) 
 
-    def sample_z(self,y):
-        rho = y + np.log(self._parameters['pi'])
+    def sample_z(self,loglike):
+        rho = loglike + np.log(self._parameters['pi'])
         rho -= logsumexp(rho,-1).reshape(-1,1)
         rho = np.exp(rho)
         rho /= rho.sum(-1).reshape(-1,1)
@@ -424,16 +427,16 @@ class Mixture(Module):
             alpha[k] = (self._parameters['z']==k).sum() + self.alpha0[k]
         self._parameters['pi'] = dirichlet.rvs(alpha)
 
-    def _add_data(self,y):
-        self.N, components = y.shape
+    def _add_data(self,loglike):
+        self.N, components = loglike.shape
         if components != self.components:
             raise ValueError("input must have same dimensonality as z (N x C)")
         if self.z.shape[0] != self.N:
             self._parameters['z'] = np.random.randint(0,self.components,self.N)
 
-    def forward(self,y):
-        self._add_data(y)
-        self.sample_z(y)
+    def forward(self,loglike):
+        self._add_data(loglike)
+        self.sample_z(loglike)
         self.sample_pi()
 
 class GMM(Module):
@@ -452,21 +455,21 @@ class GMM(Module):
         self.theta = Sequential(*[NormalWishart(output_dim=output_dim,hyper_sample=hyper_sample,full_covariance=full_covariance) for i in range(components)])
         self.mix = Mixture(components=components)
 
-    def loglikelihood(self,y):
-        N = y.shape[0]
+    def loglikelihood(self,data):
+        N = len(data)
         loglike = np.zeros((N,self.components))
         for k in range(self.components):
-            loglike[:,k] = mvn.logpdf(y,self.theta[k].A.ravel(),self.theta[k].Q)
+            loglike[:,k] = mvn.logpdf(data.y,self.theta[k].A.ravel(),self.theta[k].Q)
         return loglike
 
-    def _check_input(self,y):
-        if y.shape[-1] != self.output_dim:
+    def _check_input(self,data: 'Data'):
+        if data.y.shape[-1] != self.output_dim:
             raise ValueError("input dimension does not match model")
 
-    def forward(self,y):
-        self._check_input(y)
-        self.mix(self.loglikelihood(y))
-        self.theta(y,self.mix.z)
+    def forward(self,data: 'Data'):
+        self._check_input(data)
+        self.mix(self.loglikelihood(data))
+        self.theta(data,self.mix.z)
 
 
 class HMM(Module):
@@ -518,12 +521,12 @@ class HMM(Module):
         else:
             return np.log(np.exp(alpha) @ self.Gamma)
 
-    def _forward_hmm(self,y):
+    def _forward_hmm(self,loc,loglikelihood):
         alpha = np.zeros((self.T,self.states))
         c = np.zeros((self.T))    
         prediction = np.log(self._parameters['pi']).reshape(1,-1)
         for t in range(self.T):
-            alpha[t] = y[t] + prediction
+            alpha[t] = loglikelihood[loc==t].sum(0) + prediction
             c[t] = logsumexp(alpha[t])
             alpha[t] -= c[t]
             prediction = self._predict_hmm(alpha[t])
@@ -537,8 +540,8 @@ class HMM(Module):
             beta /= beta.sum()
             self._parameters['z'][t] = np.random.multinomial(1,beta).argmax()
         
-    def sample_z(self,y):
-        alpha = self._forward_hmm(y)
+    def sample_z(self,loc,loglikelihood):
+        alpha = self._forward_hmm(loc,loglikelihood)
         self._backward_hmm(alpha)
 
     def sample_Gamma(self):
@@ -556,16 +559,16 @@ class HMM(Module):
             alpha[k] = self.pi0[k] + (self.z[0] == k).sum()
         self._parameters['pi'] = dirichlet.rvs(alpha).ravel()
 
-    def _add_data(self,y):
-        self.T, states = y.shape
-        if states != self.states:
+    def _check_data(self,T,loglikelihood):
+        self.T = T
+        if loglikelihood.shape[-1] != self.states:
             raise ValueError("input must have same dimensonality as z (T x S)")
         if self.z.shape[0] != self.T:
             self._parameters['z'] = np.random.randint(0,self.states,self.T)
 
-    def forward(self,y):
-        self._add_data(y)
-        self.sample_z(y)
+    def forward(self,data: 'Data',loglikelihood):
+        self._check_data(data.T,loglikelihood)
+        self.sample_z(data.loc,loglikelihood)
         self.sample_Gamma()
         self.sample_pi()
 
@@ -586,21 +589,29 @@ class GHMM(Module):
         self.theta = Sequential(*[NormalWishart(output_dim=output_dim,hyper_sample=hyper_sample,full_covariance=full_covariance) for i in range(states)])
         self.hmm = HMM(states=states)
 
-    def loglikelihood(self,y):
-        N = y.shape[0]
-        loglike = np.zeros((N,self.states))
+    def loglikelihood(self,data: 'Data'):
+        loglike = np.zeros((len(data),self.states))
         for k in range(self.states):
-            loglike[:,k] = mvn.logpdf(y,self.theta[k].A.ravel(),self.theta[k].Q)
+            loglike[:,k] = mvn.logpdf(data.y,self.theta[k].A.ravel(),self.theta[k].Q)
         return loglike
 
-    def _check_input(self,y):
-        if y.shape[-1] != self.output_dim:
+    def logmarginal(self,data: 'Data'):
+        loglike = self.loglikelihood(data)
+        z_flat = self.hmm.z[data.loc]
+        marg = loglike[np.arange(len(data)),z_flat]
+        return marg
+        
+    def _check_input(self,data: 'Data'):
+        if data.y.shape[-1] != self.output_dim:
             raise ValueError("input dimension does not match model")
 
-    def forward(self,y):
-        self._check_input(y)
-        self.hmm(self.loglikelihood(y))
-        self.theta(y,self.hmm.z)
+    def forward(self,data: 'Data'):
+        self._check_input(data)
+        self.hmm(data,self.loglikelihood(data))
+        labels = np.zeros(len(data)).astype(int)
+        for i in range(len(data)):
+            labels[i] = self.hmm.z[data.loc[i]]
+        self.theta(data,labels)
 
 
 class MGHMM(Module):
@@ -612,7 +623,7 @@ class MGHMM(Module):
         Author: Julian Neri, 2022
     '''
     def __init__(self,output_dim=1,components=3,states=1,hyper_sample=True,full_covariance=True):
-        super(MGHMM).__init__()
+        super(MGHMM,self).__init__()
         self.output_dim = output_dim
         self.components = components
         self.states = states
@@ -620,92 +631,101 @@ class MGHMM(Module):
         self.ghmm = Sequential(*[GHMM(output_dim=output_dim,states=states,hyper_sample=hyper_sample,full_covariance=full_covariance) for i in range(components)])
         self.mix = Mixture(components=components)
 
-    def loglikelihood(self,y):
-        N = y.shape[0]
+    def loglikelihood(self,data: 'Data'):
+        N = len(data)
         loglike = np.zeros((N,self.components))
         for k in range(self.components):
-            loglike[:,k] = mvn.logpdf(y,self.theta[k].A.ravel(),self.theta[k].Q)
+            loglike[:,k] = self.ghmm[k].logmarginal(data)
         return loglike
 
-    def _check_input(self,y):
-        if y.shape[-1] != self.output_dim:
+    def _check_input(self,data: 'Data'):
+        if data.y.shape[-1] != self.output_dim:
             raise ValueError("input dimension does not match model")
+        initial_z = np.random.randint(0,self.components,len(data))
+        self.ghmm(data,initial_z)
 
-    #* Must handle multiple obervations for each time point. How to? either time vector, data vector, input vector, or data with obs dimension, and input with obs dimenison. Should standardize tho, have all of them accept y, x, or y, t, x. Would also need delta for second option, wheras first wouldnt. So:
-    #* 1) output, input, time
-    #* 2) output, input, delta
-    # a) output
-    # b) output, input
-    # c( output, time
-    #* either way, more compact if use dictionary to store the data. Or have custom structure for it (a class) to ensure it has the right formatting.
-    def forward(self,y):
-        self._check_input(y)
-        self.mix(self.loglikelihood(y))
-        self.ghmm(y,self.mix.z)
+    def forward(self,data: 'Data'):
+        self._check_input(data)
+        self.mix(self.loglikelihood(data))
+        self.ghmm(data,self.mix.z)
+        
+        
 
-# #%%
-# N = 5000
-# np.random.seed(123)
-# y = gmm_generate(n=N,n_components=6)[0]
+#* output, input, time
+class Data(object):
+    def __init__(self,y,x=None,t=None,delta=None) -> None:
+        self.y = y
+        self.x = x
+        self.loc = t
+        
+    @property
+    def y(self):
+        return self._y
 
-# #%%
-# np.random.seed(123)
-# model = GMM(output_dim=2,components=6,hyper_sample=False,full_covariance=True)
-# sampler = Gibbs()
+    @y.setter
+    def y(self,val):
+        if val.ndim != 2:
+            raise ValueError("value of y for 'Data' must be 2d")
+        self._y = val
 
-# #%%
-# samples = 50
-# # sampler.fit(model.forward,model.named_parameters,samples=samples)
-# # OR
-# for i in tqdm(range(samples)):
-#     model(y)
-#     sampler.step(model.named_parameters())
+    @property
+    def x(self):
+        return self._x
 
+    @x.setter
+    def x(self,val):
+        self._x = val
 
-# #%%
-# sampler.get_estimates(burn_rate=.8)
-# chain = sampler.get_chain(flatten=True)
+    @property
+    def loc(self):
+        return self._t
 
-# fig,ax = plt.subplots(len(chain),figsize=(5,len(chain)*1.5))
-# ax = np.atleast_1d(ax)
-# for j,s in enumerate(chain):
-#     ax[j].plot(chain[s],'k',alpha=.1,linewidth=1)
-#     ax[j].set_title(s)
-# ax[-1].set_xlabel('step')
-# plt.tight_layout()
+    @loc.setter
+    def loc(self,val):
+        if val is None:
+            val = np.arange(self.y.shape[0])
+        val = np.atleast_1d(val)
+        if val.ndim != 1:
+            raise ValueError("value of loc for 'Data' must be 1d")
+        if len(val) != len(self):
+            raise ValueError("len of loc must match len of y for 'Data'")
+        if len(val) == 0:
+            self.T = 0
+        else:
+            self.T = int(val.max() + 1)
+        self._t = val
 
-# #%%
-# colors = np.array(['r','g','b','k','m','orange','yellow','brown']*30)
-# plt.figure(figsize=(5,4))
-# z_hat = sampler._estimates['mix.z']
-# kwds_scatter = dict(s=15,alpha=.5,edgecolor='none')
-# plt.scatter(y[:,0],y[:,1],c=colors[z_hat],**kwds_scatter)
-
-# for k in np.unique(z_hat):
-#     mu_hat = sampler._estimates[r"theta.{}.A".format(k)]
-#     Sigma_hat = sampler._estimates[r"theta.{}.Q".format(k)]
-#     plot_cov_ellipse(pos=mu_hat,cov=Sigma_hat,nstd=1,fill=None,color=colors[k],linewidth=2)
-# plt.tight_layout()
-
-# # %%
-
+    def __len__(self):
+        return self.y.shape[0]
 
 
 #%%
 N = 500
 np.random.seed(123)
-y,z_true = hmm_generate(n=N,n_components=4,expected_duration=20)
+y,z_true = hmm_generate(n=N,n_components=2,expected_duration=20)
+t = np.arange(N)
+delta = np.ones(N).astype(bool)
+# delta[:200] = False
+y = y[delta]
+t = t[delta]
+
+y = np.concatenate([y,-2*y],0)
+t = np.concatenate([t,t],0)
+sot = t.argsort()
+y = y[sot]
+t = t[sot]
+data = Data(y,t=t)
+
+plt.plot(data.loc,data.y,'.')
 #%%
 np.random.seed(123)
-model = GHMM(output_dim=2,states=6,hyper_sample=True)
+model = MGHMM(output_dim=2,states=4,components=2,hyper_sample=True)
 sampler = Gibbs()
 
 #%%
 samples = 100
-# sampler.fit(model.forward,model.named_parameters,samples=samples)
-# OR
 for i in tqdm(range(samples)):
-    model(y)
+    model(data)
     sampler.step(model.named_parameters())
 
 #%%
@@ -723,14 +743,22 @@ plt.tight_layout()
 #%%
 colors = np.array(['r','g','b','k','m','orange','yellow','brown']*30)
 plt.figure(figsize=(5,4))
-z_hat = sampler._estimates['hmm.z']
+# z_hat = sampler._estimates['hmm.z']
+# labels = np.zeros(len(data)).astype(int)
+# for i in range(len(data)):
+#     labels[i] = z_hat[data.loc[i]]
+z_hat = sampler._estimates['mix.z']
+labels = z_hat + 0
+
+    
 kwds_scatter = dict(s=15,alpha=.5,edgecolor='none')
-plt.scatter(y[:,0],y[:,1],c=colors[z_hat],**kwds_scatter)
+plt.scatter(data.y[:,0],data.y[:,1],c=colors[labels],**kwds_scatter)
 
 for k in np.unique(z_hat):
-    mu_hat = sampler._estimates[r"theta.{}.A".format(k)]
-    Sigma_hat = sampler._estimates[r"theta.{}.Q".format(k)]
-    plot_cov_ellipse(pos=mu_hat,cov=Sigma_hat,nstd=1,fill=None,color=colors[k],linewidth=2)
+    for l in np.unique(sampler._estimates[r"ghmm.{}.hmm.z".format(k)]):
+        mu_hat = sampler._estimates[r"ghmm.{}.theta.{}.A".format(k,l)]
+        Sigma_hat = sampler._estimates[r"ghmm.{}.theta.{}.Q".format(k,l)]
+        plot_cov_ellipse(pos=mu_hat,cov=Sigma_hat,nstd=1,fill=None,color=colors[k],linewidth=2)
 plt.tight_layout()
 
 fig,ax = plt.subplots(2)
