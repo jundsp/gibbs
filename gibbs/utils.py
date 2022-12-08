@@ -48,7 +48,13 @@ def get_median(stacked):
 def get_mean(stacked):
     return np.mean(stacked,0)
     
-
+def mvn_logpdf(y,mu,Sigma):
+    y_eps = y-mu
+    iSigma = la.inv(Sigma)[None,:,:]
+    quad = (y_eps[:,None,:] @ iSigma @ y_eps[:,:,None]).ravel()
+    return -0.5*(np.linalg.slogdet(2*np.pi*Sigma)[-1] + quad)
+    
+    
 def gmm_generate(n=100,output_dim=2,n_components=3):
     mu = mvn.rvs(np.zeros(output_dim),np.eye(output_dim),n_components
     )
