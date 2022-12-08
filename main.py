@@ -688,29 +688,29 @@ class LDS(Module):
 
     @property
     def A(self):
-        return self.sys.A
+        return self.theta.A
     @property
     def Q(self):
-        return self.sys.Q
+        return self.theta.Q
     @property
     def C(self):
-        return self.obs.A
+        return self.theta.C
     @property
     def R(self):
-        return self.obs.Q
+        return self.theta.R
     @property
     def m0(self):
-        return self.pri.A.ravel()
+        return self.theta.m0
     @property
     def P0(self):
-        return self.pri.Q
+        return self.theta.P0
+
+    @property
+    def I(self):
+        return self.theta.I
 
     def initialize(self):
-        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
-        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
-        self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=False,full_covariance=self.full_cov)
-
-        self.I = np.eye(self.state_dim)
+        self.theta = StateSpace(output_dim=self.output_dim,state_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
         
     def transition(self,z):
         return self.A @ z
@@ -786,21 +786,94 @@ class LDS(Module):
     def forward(self,y):
         self._check_data(y)
         self.sample_x(y)
-        self.obs(y=y,x=self.x)
-        self.sys(y=self.x[1:],x=self.x[:-1])
-        self.pri(y=self.x[[0]])
+        self.theta(y=y,x=self.x)
         
+class StateSpace(Module):
+    def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True):
+        super(StateSpace,self).__init__()
+        self._dimy = output_dim
+        self._dimx = state_dim
+        self.hyper_sample = hyper_sample
+        self.full_cov = full_covariance
+        self.initialize()
+    
+    def initialize(self):
+        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
+        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
+        self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
+
+        self.I = np.eye(self.state_dim)
+
+    @property
+    def output_dim(self):
+        return self._dimy
+
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
+
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+            self.initialize()
+
+    @property
+    def A(self):
+        return self.sys.A
+    @property
+    def Q(self):
+        return self.sys.Q
+    @property
+    def C(self):
+        return self.obs.A
+    @property
+    def R(self):
+        return self.obs.Q
+    @property
+    def m0(self):
+        return self.pri.A.ravel()
+    @property
+    def P0(self):
+        return self.pri.Q
+
+    def _check_input(self,y,x):
+        if y.shape[0] != x.shape[0]:
+            raise ValueError("dim 1 of y and x must match")
+        if y.ndim != 2:
+            raise ValueError("y must be 2d")
+        if x.ndim != 2:
+            raise ValueError("x must be 2d")
+
+        self.output_dim = y.shape[-1]
+        self.state_dim = x.shape[-1]
+
+    def forward(self,y,x):
+        self._check_input(y,x)
+        self.obs(y=y,x=x)
+        self.sys(y=x[1:],x=x[:-1])
+        self.pri(y=x[[0]])
+
 
 #%%
 N = 200
 np.random.seed(123)
 t = np.arange(N)
-y = np.cos(2*np.pi*.1*t)[:,None]
-y += np.random.normal(0,.2,y.shape)
-y = np.concatenate([y,-y],-1)
+y = np.cos(2*np.pi*2*t/100)[:,None]
+y = np.concatenate([y,-y*.1],-1)
+y += np.random.normal(0,.5,y.shape)
+
+plt.plot(y)
 #%%
 np.random.seed(123)
-model = LDS(output_dim=1,state_dim=4,hyper_sample=True,full_covariance=True)
+model = LDS(output_dim=1,state_dim=4,hyper_sample=True,full_covariance=False)
 sampler = Gibbs()
 
 #%%
@@ -822,10 +895,16 @@ for j,s in enumerate(chain):
 ax[-1].set_xlabel('step')
 plt.tight_layout()
 # %%
-y_hat = sampler._estimates['x'] @ sampler._estimates['obs.A'].T
-y_samp = (chain['x'] @ chain['obs.A'].transpose(0,2,1)).transpose(1,0,2)
+y_hat = sampler._estimates['x'] @ sampler._estimates['theta.obs.A'].T
+y_samp = (chain['x'] @ chain['theta.obs.A'].transpose(0,2,1)).transpose(1,0,2)
 y_hat = y_samp.mean(1)
-plt.plot(y,'b.',alpha=.5)
-# plt.plot(y_samp[:,:,0],'k',alpha=.1);
-plt.plot(y_hat,linewidth=2)
+
+
+#%%
+colors = ['r','b','g','orange','y','m','k']
+# for k in range(y_samp.shape[-1]):
+    # plt.plot(y_samp[:,:,k],c=colors[k],alpha=.05);
+plt.plot(y,'k.',alpha=.5)
+for k in range(y_samp.shape[-1]):
+    plt.plot(y_hat[:,k],linewidth=2,c=colors[k])
 # %%
