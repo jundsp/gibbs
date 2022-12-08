@@ -125,7 +125,7 @@ class Module(object):
                 raise TypeError("cannot assign as child module (Module or None expected)")
             modules[__name] = __value
         else:
-            self.__dict__[__name] = __value
+            super().__setattr__(__name,__value)
 
     def __dir__(self) -> Iterable[str]:
         return list(self._parameters.keys())
@@ -643,99 +643,189 @@ class MGHMM(Module):
         self.mix(self.loglikelihood(y))
         self.ghmm(y,self.mix.z)
 
-# #%%
-# N = 5000
-# np.random.seed(123)
-# y = gmm_generate(n=N,n_components=6)[0]
-
-# #%%
-# np.random.seed(123)
-# model = GMM(output_dim=2,components=6,hyper_sample=False,full_covariance=True)
-# sampler = Gibbs()
-
-# #%%
-# samples = 50
-# # sampler.fit(model.forward,model.named_parameters,samples=samples)
-# # OR
-# for i in tqdm(range(samples)):
-#     model(y)
-#     sampler.step(model.named_parameters())
 
 
-# #%%
-# sampler.get_estimates(burn_rate=.8)
-# chain = sampler.get_chain(flatten=True)
+class LDS(Module):
+    r'''
+        Bayesian linear dynamical system.
 
-# fig,ax = plt.subplots(len(chain),figsize=(5,len(chain)*1.5))
-# ax = np.atleast_1d(ax)
-# for j,s in enumerate(chain):
-#     ax[j].plot(chain[s],'k',alpha=.1,linewidth=1)
-#     ax[j].set_title(s)
-# ax[-1].set_xlabel('step')
-# plt.tight_layout()
+        Gibbs sampling. 
 
-# #%%
-# colors = np.array(['r','g','b','k','m','orange','yellow','brown']*30)
-# plt.figure(figsize=(5,4))
-# z_hat = sampler._estimates['mix.z']
-# kwds_scatter = dict(s=15,alpha=.5,edgecolor='none')
-# plt.scatter(y[:,0],y[:,1],c=colors[z_hat],**kwds_scatter)
+        Author: Julian Neri, 2022
+    '''
+    def __init__(self,output_dim=1,state_dim=2,parameter_sampling=True,hyper_sample=True,full_covariance=True):
+        super(LDS,self).__init__()
+        self._dimy = output_dim
+        self._dimx = state_dim
+        self.parameter_sampling = parameter_sampling
+        self.hyper_sample = hyper_sample
+        self.full_cov = full_covariance
 
-# for k in np.unique(z_hat):
-#     mu_hat = sampler._estimates[r"theta.{}.A".format(k)]
-#     Sigma_hat = sampler._estimates[r"theta.{}.Q".format(k)]
-#     plot_cov_ellipse(pos=mu_hat,cov=Sigma_hat,nstd=1,fill=None,color=colors[k],linewidth=2)
-# plt.tight_layout()
+        self._parameters["x"] = np.zeros((1,state_dim))
+        self.initialize()
 
-# # %%
+    @property
+    def output_dim(self):
+        return self._dimy
 
+    
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
 
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+            self.initialize()
+
+    @property
+    def A(self):
+        return self.sys.A
+    @property
+    def Q(self):
+        return self.sys.Q
+    @property
+    def C(self):
+        return self.obs.A
+    @property
+    def R(self):
+        return self.obs.Q
+    @property
+    def m0(self):
+        return self.pri.A.ravel()
+    @property
+    def P0(self):
+        return self.pri.Q
+
+    def initialize(self):
+        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
+        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
+        self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=False,full_covariance=self.full_cov)
+
+        self.I = np.eye(self.state_dim)
+        
+    def transition(self,z):
+        return self.A @ z
+        
+    def emission(self,z):
+        return self.C @ z
+    
+    def predict(self,mu,V):
+        m = self.transition(mu)
+        P = self.A @ V @ self.A.T+ self.Q
+        return m, (P)
+
+    def update(self,y,m,P):
+        if (y.ndim == 1):
+            return self.update_single(y,m,P)
+        else:
+            return self.update_multiple(y,m,P)
+
+    def update_single(self,y,m,P):
+        y_hat = self.emission(m)
+        Sigma_hat = self.C @ P @ self.C.T + self.R
+        K = la.solve(Sigma_hat, self.C @ P).T
+        mu = m + K @ (y - y_hat)
+        V = (self.I - K @ self.C) @ P
+        return mu, (V)
+
+    def update_multiple(self,y,m,P):
+        N = y.shape[0]
+        CR = self.C.T @ la.inv(self.R)
+        CRC = CR @ self.C
+
+        Lam = la.inv(P)
+        ell = Lam @ m
+        ell += CR @ y.sum(0)
+        Lam += CRC * N
+        V = la.inv(Lam)
+        mu = V @ ell
+        return mu, (V)
+
+    def _forward(self,y):
+        mu = np.zeros((self.T,self.state_dim))
+        V = np.zeros((self.T,self.state_dim,self.state_dim))
+        m = self.m0.copy()
+        P = self.P0.copy()
+        for n in range(self.T):
+            ''' update'''
+            mu[n], V[n] = self.update(y[n],m,P)
+            ''' predict '''
+            m,P = self.predict(mu[n], V[n])
+        return mu, V
+
+    def _backward(self,mu,V):
+        self._parameters['x'][-1] = mvn.rvs(mu[-1],V[-1])
+        for t in range(self.T-2,-1,-1):
+            m = self.A @ mu[t]
+            P = self.A @ V[t] @ self.A.T + self.Q
+            K_star = V[t] @ self.A.T @ la.inv(P)
+
+            mu[t] = mu[t] + K_star @ (self.x[t+1] - m)
+            V[t] = (self.I - K_star @ self.A) @ V[t]
+            self._parameters['x'][t] = mvn.rvs(mu[t],V[t])
+
+    def sample_x(self,y):
+        mu, V = self._forward(y)
+        self._backward(mu,V)
+        
+    def _check_data(self,y):
+        self.T = y.shape[0]
+        self.output_dim = y.shape[1]
+        if self.x.shape[0] != self.T:
+            self._parameters['x'] = np.zeros((self.T,self.state_dim))
+
+    def forward(self,y):
+        self._check_data(y)
+        self.sample_x(y)
+        self.obs(y=y,x=self.x)
+        self.sys(y=self.x[1:],x=self.x[:-1])
+        self.pri(y=self.x[[0]])
+        
 
 #%%
-N = 500
+N = 200
 np.random.seed(123)
-y,z_true = hmm_generate(n=N,n_components=4,expected_duration=20)
+t = np.arange(N)
+y = np.cos(2*np.pi*.1*t)[:,None]
+y += np.random.normal(0,.2,y.shape)
+y = np.concatenate([y,-y],-1)
 #%%
 np.random.seed(123)
-model = GHMM(output_dim=2,states=6,hyper_sample=True)
+model = LDS(output_dim=1,state_dim=4,hyper_sample=True,full_covariance=True)
 sampler = Gibbs()
 
 #%%
 samples = 100
-# sampler.fit(model.forward,model.named_parameters,samples=samples)
-# OR
 for i in tqdm(range(samples)):
     model(y)
     sampler.step(model.named_parameters())
 
-#%%
+
+# %%
 sampler.get_estimates(burn_rate=.8)
-chain = sampler.get_chain(flatten=True)
+chain = sampler.get_chain(flatten=False,burn_rate=.8)
 
 fig,ax = plt.subplots(len(chain),figsize=(5,len(chain)*1.5))
 ax = np.atleast_1d(ax)
 for j,s in enumerate(chain):
-    ax[j].plot(chain[s],'k',alpha=.1,linewidth=1)
+    ax[j].plot(chain[s].reshape(chain[s].shape[0],-1),'k',alpha=.1,linewidth=1)
     ax[j].set_title(s)
 ax[-1].set_xlabel('step')
 plt.tight_layout()
-
-#%%
-colors = np.array(['r','g','b','k','m','orange','yellow','brown']*30)
-plt.figure(figsize=(5,4))
-z_hat = sampler._estimates['hmm.z']
-kwds_scatter = dict(s=15,alpha=.5,edgecolor='none')
-plt.scatter(y[:,0],y[:,1],c=colors[z_hat],**kwds_scatter)
-
-for k in np.unique(z_hat):
-    mu_hat = sampler._estimates[r"theta.{}.A".format(k)]
-    Sigma_hat = sampler._estimates[r"theta.{}.Q".format(k)]
-    plot_cov_ellipse(pos=mu_hat,cov=Sigma_hat,nstd=1,fill=None,color=colors[k],linewidth=2)
-plt.tight_layout()
-
-fig,ax = plt.subplots(2)
-ax[0].imshow(np.atleast_2d(z_true),aspect='auto')
-ax[1].imshow(np.atleast_2d(z_hat),aspect='auto')
-
-
+# %%
+y_hat = sampler._estimates['x'] @ sampler._estimates['obs.A'].T
+y_samp = (chain['x'] @ chain['obs.A'].transpose(0,2,1)).transpose(1,0,2)
+y_hat = y_samp.mean(1)
+plt.plot(y,'b.',alpha=.5)
+# plt.plot(y_samp[:,:,0],'k',alpha=.1);
+plt.plot(y_hat,linewidth=2)
 # %%
