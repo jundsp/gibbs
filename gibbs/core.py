@@ -450,11 +450,35 @@ class GMM(Module):
     '''
     def __init__(self,output_dim=1,components=3,hyper_sample=True,full_covariance=True):
         super().__init__()
-        self.output_dim = output_dim
-        self.components = components
+        self._dimy = output_dim
+        self._dimz = components
+        self.hyper_sample = hyper_sample
+        self.full_covariance = full_covariance
+        self.initialize()
 
-        self.theta = Sequential(*[NormalWishart(output_dim=output_dim,hyper_sample=hyper_sample,full_covariance=full_covariance) for i in range(components)])
-        self.mix = Mixture(components=components)
+    def initialize(self):
+        self.theta = Sequential(*[NormalWishart(output_dim=self.output_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance) for i in range(self.components)])
+        self.mix = Mixture(components=self.components)
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
+
+    @property
+    def components(self):
+        return self._dimz
+    @components.setter
+    def components(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimz:
+            self._dimz = value
+            self.initialize()
 
     def loglikelihood(self,y):
         N = y.shape[0]
@@ -464,8 +488,9 @@ class GMM(Module):
         return loglike
 
     def _check_input(self,y):
-        if y.shape[-1] != self.output_dim:
-            raise ValueError("input dimension does not match model")
+        if y.ndim != 2:
+            raise ValueError("input must be 2d")
+        N, self.output_dim = y.shape
 
     def forward(self,y):
         self._check_input(y)
@@ -585,11 +610,36 @@ class GHMM(Module):
     '''
     def __init__(self,output_dim=1,states=3,hyper_sample=True,full_covariance=True):
         super(GHMM,self).__init__()
-        self.output_dim = output_dim
-        self.states = states
+        self._dimy = output_dim
+        self._dimz = states
+        self.hyper_sample = hyper_sample
+        self.full_covariance = full_covariance
 
-        self.theta = Sequential(*[NormalWishart(output_dim=output_dim,hyper_sample=hyper_sample,full_covariance=full_covariance) for i in range(states)])
-        self.hmm = HMM(states=states)
+        self.initialize()
+
+    def initialize(self):
+        self.theta = Sequential(*[NormalWishart(output_dim=self.output_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance) for i in range(self.states)])
+        self.hmm = HMM(states=self.states)
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
+
+    @property
+    def states(self):
+        return self._dimz
+    @states.setter
+    def states(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimz:
+            self._dimz = value
+            self.initialize()
 
     def loglikelihood(self,y):
         N = y.shape[0]
@@ -599,8 +649,9 @@ class GHMM(Module):
         return loglike
 
     def _check_input(self,y):
-        if y.shape[-1] != self.output_dim:
-            raise ValueError("input dimension does not match model")
+        if y.ndim != 2:
+            raise ValueError("input must be 2d")
+        N, self.output_dim = y.shape
 
     def forward(self,y):
         self._check_input(y)
