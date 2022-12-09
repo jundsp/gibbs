@@ -445,22 +445,31 @@ class GMM(Module):
             self._dimz = value
             self.initialize()
 
-    def loglikelihood(self,y):
-        N = y.shape[0]
-        loglike = np.zeros((N,self.components))
+    def loglikelihood(self,y,mask):
+        loglike = np.zeros((self.T,self.N,self.components))
+        rz, cz = np.nonzero(mask)
         for k in range(self.components):
-            loglike[:,k] = mvn.logpdf(y,self.theta[k].A.ravel(),self.theta[k].Q)
+            loglike[rz,cz,k] = mvn.logpdf(y[rz,cz],self.theta[k].A.ravel(),self.theta[k].Q)
         return loglike
 
-    def _check_input(self,y):
-        if y.ndim != 2:
-            raise ValueError("input must be 2d")
-        N, self.output_dim = y.shape
+    def _check_input(self,y,mask=None):
+        if y.ndim != 3:
+            raise ValueError("input must be 3d")
+        if mask is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask.ndim != 2:
+            raise ValueError("mask must be 2d")
+        if y.shape[:2] != mask.shape[:2]:
+            raise ValueError("mask must match y in dimensions")
+        self.T, self.N, self.output_dim = y.shape
+        return mask
 
-    def forward(self,y):
-        self._check_input(y)
-        self.mix(self.loglikelihood(y))
-        self.theta(y,self.mix.z)
+    def forward(self,y,mask=None):
+        mask = self._check_input(y,mask)
+        loglike = self.loglikelihood(y,mask)
+        rz, cz = np.nonzero(mask)
+        self.mix(loglike[rz,cz])
+        self.theta(y[rz,cz],self.mix.z)
 
 
 class HMM(Module):
@@ -897,8 +906,6 @@ class LDS(Module):
             self.theta(y=y,x=self.x,labels=z,mask=mask)
         
 
-
-
 class SLDS(Module):
     r'''
         Bayesian switching linear dynamical system.
@@ -995,83 +1002,3 @@ class SLDS(Module):
         mask = self._check_data(y=y,mask=mask)
         self.lds(y=y,z=self.hmm.z,mask=mask)
         self.hmm(logl=self.loglikelihood(y,mask))
-
-#* RE-DO GMM first with TXNXM -> mix is TXNXC for simplicty, or L <- mask.sum()
-class MLDS(Module):
-    def __init__(self, output_dim=1, state_dim=2, states=1, components=1, parameter_sampling=True, hyper_sample=True, full_covariance=True):
-        self.components = components
-        self._dimy = output_dim
-        self._dimz = states
-        self._dimx = state_dim
-
-        self.kwds = dict(output_dim=output_dim, state_dim=state_dim, states=states, parameter_sampling=parameter_sampling, hyper_sample=hyper_sample, full_covariance=full_covariance)
-
-        
-
-    def initialize(self):
-        self.kwds['output_dim'] = self.output_dim
-        self.kwds['state_dim'] = self.state_dim
-        self.kwds['states'] = self.states
-        self.mix = Mixture(components=self.components)
-        self.lds = Plate(*[LDS(**self.kwds) for i in range(self.components)])
-
-    @property
-    def output_dim(self):
-        return self._dimy
-    @output_dim.setter
-    def output_dim(self,value):
-        value = np.maximum(1,value)
-        if value != self._dimy:
-            self._dimy = value
-            self.initialize()
-
-    @property
-    def state_dim(self):
-        return self._dimx
-    @state_dim.setter
-    def state_dim(self,value):
-        value = np.maximum(1,value)
-        if value != self._dimx:
-            self._dimx = value
-            self.initialize()
-
-    @property
-    def states(self):
-        return self._dimz
-    @states.setter
-    def states(self,value):
-        value = np.maximum(1,value)
-        if value != self._dimz:
-            self._dimz = value
-            self.initialize()
-
-    def loglikelihood(self,y,mask):
-        loglike = np.zeros((self.TN,self.components))
-        rz, cz = np.nonzero(mask)
-        for k in range(self.components):
-            z = 0
-            mu = self.lds[k].theta[z].A.ravel()
-            Sigma = self.lds[k].theta[z].Q
-            loglike[:,k] = mvn.logpdf(y[rz,cz],mu,Sigma)
-        return loglike
-
-    def _check_input(self,y):
-        if y.ndim != 3:
-            raise ValueError("input must be 3d")
-        if mask is None:
-            mask = np.ones(y.shape[:2]).astype(bool)
-        if mask.ndim != 2:
-            raise ValueError("mask must be 2d")
-        if y.shape[:2] != mask.shape[:2]:
-            raise ValueError("mask must match y in dimensions")
-        self.T, self.N, self.output_dim = y.shape
-
-        self.TN = mask.sum()
-        if self.mix.z.shape[0] != self.TN:
-            self.z._parameters['z'] = np.random.randint(0,self.components,(self.TN))
-        return mask
-
-    def forward(self,y):
-        mask = self._check_input(y,mask)
-        self.mix(self.loglikelihood(y,mask))
-        self.lds(y,self.mix.z)

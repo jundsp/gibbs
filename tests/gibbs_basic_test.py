@@ -43,7 +43,7 @@ def testing_function_gmm(y):
 
 class Test_TestBasic(unittest.TestCase):
     def test_gmm(self):
-        y = np.random.normal(0,1,(100,2))
+        y = np.random.normal(0,1,(1,100,2))
         self.assertEqual(testing_function_gmm(y), 0)
 
     def test_ghmm(self):

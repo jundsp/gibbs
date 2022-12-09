@@ -8,14 +8,14 @@ import matplotlib.pyplot as plt
 N = 200
 np.random.seed(123)
 y = gmm_generate(n=N,n_components=4)[0]
-
+y = y[None,:,:]
 #%%
 np.random.seed(123)
 model = GMM(output_dim=1,components=6)
 sampler = Gibbs()
 
 #%%
-iters = 100
+iters = 10
 for iter in tqdm(range(iters)):
     model(y)
     sampler.step(model.named_parameters())
