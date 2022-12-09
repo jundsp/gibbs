@@ -2,7 +2,6 @@ import unittest   # The test framework
 
 from gibbs import Gibbs, SLDS, LDS, GHMM, GMM
 import numpy as np
-import matplotlib.pyplot as plt
 
 def test_sampling(y,model,sampler):
     iters = 10
