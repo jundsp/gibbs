@@ -47,15 +47,15 @@ class Test_TestBasic(unittest.TestCase):
         self.assertEqual(testing_function_gmm(y), 0)
 
     def test_ghmm(self):
-        y = np.random.normal(0,1,(100,2))
+        y = np.random.normal(0,1,(100,1,2))
         self.assertEqual(testing_function_ghmm(y), 0)
 
     def test_lds(self):
-        y = np.random.normal(0,1,(100,2))
+        y = np.random.normal(0,1,(100,1,2))
         self.assertEqual(testing_function_lds(y), 0)
 
     def test_slds(self):
-        y = np.random.normal(0,1,(100,2))
+        y = np.random.normal(0,1,(100,1,2))
         self.assertEqual(testing_function_slds(y), 0)
 
 if __name__ == '__main__':

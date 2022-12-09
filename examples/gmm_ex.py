@@ -5,14 +5,13 @@ import os
 import matplotlib.pyplot as plt
 
 #%%
-N = 500
+N = 200
 np.random.seed(123)
 y = gmm_generate(n=N,n_components=4)[0]
 
 #%%
 np.random.seed(123)
 model = GMM(output_dim=1,components=6)
-# Have sampler point to parameters, retrieve new values somehow.
 sampler = Gibbs()
 
 #%%

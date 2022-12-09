@@ -49,6 +49,7 @@ def get_mean(stacked):
     return np.mean(stacked,0)
     
 def mvn_logpdf(y,mu,Sigma):
+    # T x M or T X N X M
     y_eps = y-mu
     iSigma = la.inv(Sigma)[None,:,:]
     quad = (y_eps[:,None,:] @ iSigma @ y_eps[:,:,None]).ravel()

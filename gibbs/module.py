@@ -158,7 +158,7 @@ class Module(object):
                 yield name, v
         
 
-class Sequential(Module):
+class Plate(Module):
     @overload
     def __init__(self, *args: Module) -> None:
         ...
@@ -167,7 +167,7 @@ class Sequential(Module):
     def __init__(self, arg: 'OrderedDict[str, Module]') -> None:
         ...
     def __init__(self, *args):
-        super(Sequential, self).__init__()
+        super(Plate, self).__init__()
         if len(args) == 1 and isinstance(args[0], OrderedDict):
             for key, module in args[0].items():
                 self.add_module(key, module)
@@ -193,7 +193,7 @@ class Sequential(Module):
         else:
             return self._get_item_by_idx(self._modules.values(), idx)
 
-    def append(self, module: Module) -> 'Sequential':
+    def append(self, module: Module) -> 'Plate':
         r"""Appends a given module to the end.
 
         Args:
@@ -202,10 +202,17 @@ class Sequential(Module):
         self.add_module(str(len(self)), module)
         return self
 
+    #** How to generalize this? Modules will have to have the same input
     def forward(self,y,labels,x=None):
         for k,m in enumerate(self._modules):
-            idx = labels == k
+            idx = (labels == k)
             self._modules[m](y,x=x,mask=idx)
+
+class TimePlate(Plate):
+    def forward(self,y,labels,x=None,mask=None):
+        for k,m in enumerate(self._modules):
+            idx = (labels == k)
+            self._modules[m](y,x=x,mask_time=idx,mask_data=mask)
 
 class NormalWishart(Module):
     r'''
@@ -320,16 +327,37 @@ class NormalWishart(Module):
 
         Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W) )
         return la.inv(Lambda)
-        
-    def forward(self,y,x=None,mask=None):
+
+    def _check_input(self,y,x=None,mask=None):
+        if y.ndim != 2:
+            raise ValueError("y must be 2d")
+
         if x is None:
             x = np.ones((y.shape[0],self.input_dim))
+        if x.ndim != 2:
+            raise ValueError("x must be 2d")
+        if y.shape[0] != x.shape[0]:
+            raise ValueError("dim 1 of y and x must match")
+        
         if mask is None:
             mask = np.ones(y.shape[0]).astype(bool)
+        if mask.ndim != 1:
+            raise ValueError("mask must be 1d")
+        if y.shape[0] != mask.shape[0]:
+            raise ValueError("mask must match y in dim 1")
+
+        self.output_dim = y.shape[-1]
+        self.state_dim = x.shape[-1]
+        return x, mask
+
+
+    def forward(self,y,x=None,mask=None):
+        x,mask = self._check_input(y,x,mask)
         
         self.y = y[mask]
         self.x = x[mask]
         self.N = self.y.shape[0]
+
         self.sample_A()
         self.sample_Q()
         self.sample_alpha()
@@ -394,7 +422,7 @@ class GMM(Module):
         self.initialize()
 
     def initialize(self):
-        self.theta = Sequential(*[NormalWishart(output_dim=self.output_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance) for i in range(self.components)])
+        self.theta = Plate(*[NormalWishart(output_dim=self.output_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance) for i in range(self.components)])
         self.mix = Mixture(components=self.components)
 
     @property
@@ -523,7 +551,9 @@ class HMM(Module):
             alpha[k] = self.pi0[k] + (self.z[0] == k).sum()
         self._parameters['pi'] = dirichlet.rvs(alpha).ravel()
 
-    def _add_data(self,logl):
+    def _check_data(self,logl):
+        if logl.ndim != 2:
+            raise ValueError("input must have 2d")
         self.T, states = logl.shape
         if states != self.states:
             raise ValueError("input logl must have same dimensonality as z (T x S)")
@@ -531,7 +561,7 @@ class HMM(Module):
             self._parameters['z'] = np.random.randint(0,self.states,self.T)
 
     def forward(self,logl):
-        self._add_data(logl)
+        self._check_data(logl)
         self.sample_z(logl)
         if self.parameter_sampling:
             self.sample_Gamma()
@@ -555,7 +585,7 @@ class GHMM(Module):
         self.initialize()
 
     def initialize(self):
-        self.theta = Sequential(*[NormalWishart(output_dim=self.output_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance) for i in range(self.states)])
+        self.theta = Plate(*[NormalWishart(output_dim=self.output_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance) for i in range(self.states)])
         self.hmm = HMM(states=self.states)
 
     @property
@@ -578,22 +608,30 @@ class GHMM(Module):
             self._dimz = value
             self.initialize()
 
-    def loglikelihood(self,y):
-        N = y.shape[0]
-        loglike = np.zeros((N,self.states))
+    def loglikelihood(self,y,mask):
+        loglike = np.zeros((self.T,self.N,self.states))
+        rz, cz = np.nonzero(mask)
         for k in range(self.states):
-            loglike[:,k] = mvn.logpdf(y,self.theta[k].A.ravel(),self.theta[k].Q)
-        return loglike
+            loglike[rz,cz,k] = mvn.logpdf(y[rz,cz],self.theta[k].A.ravel(),self.theta[k].Q)
+        return loglike.sum(1)
 
-    def _check_input(self,y):
-        if y.ndim != 2:
-            raise ValueError("input must be 2d")
-        N, self.output_dim = y.shape
+    def _check_input(self,y,mask=None):
+        if y.ndim != 3:
+            raise ValueError("input must be 3d")
+        if mask is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask.ndim != 2:
+            raise ValueError("mask must be 2d")
+        if y.shape[:2] != mask.shape[:2]:
+            raise ValueError("mask must match y in dimensions")
+        self.T, self.N, self.output_dim = y.shape
+        return mask
 
-    def forward(self,y):
-        self._check_input(y)
-        self.hmm(self.loglikelihood(y))
-        self.theta(y,self.hmm.z)
+    def forward(self,y,mask=None):
+        mask = self._check_input(y,mask=mask)
+        self.hmm(self.loglikelihood(y,mask))
+        rz,cz = np.nonzero(mask)
+        self.theta(y[rz,cz],labels=self.hmm.z[rz])
 
 class StateSpace(Module):
     def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True):
@@ -651,24 +689,47 @@ class StateSpace(Module):
     def P0(self):
         return self.pri.Q
 
-    def _check_input(self,y,x):
-        if y.shape[0] != x.shape[0]:
-            raise ValueError("dim 1 of y and x must match")
-        if y.ndim != 2:
-            raise ValueError("y must be 2d")
+    def _check_input(self,y,x,mask_time=None,mask_data=None):
+        if y.ndim != 3:
+            raise ValueError("y must be 3d")
         if x.ndim != 2:
             raise ValueError("x must be 2d")
+        if y.shape[0] != x.shape[0]:
+            raise ValueError("dim 1 of y and x must match")
+
+        if mask_time is None:
+            mask = np.ones(y.shape[0]).astype(bool)
+        if mask_time.ndim != 1:
+            raise ValueError("mask_time must be 1d")
+        if y.shape[0] != mask_time.shape[0]:
+            raise ValueError("mask_time must match y in dimensions")
+
+
+        if mask_data is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask_data.ndim != 2:
+            raise ValueError("mask_data must be 2d")
+        if y.shape[:2] != mask_data.shape[:2]:
+            raise ValueError("mask_data must match y in 2 dimensions")
 
         self.output_dim = y.shape[-1]
         self.state_dim = x.shape[-1]
+        return mask_time, mask_data
 
-    def forward(self,y,x,mask=None):
-        self._check_input(y,x)
-        if mask is None:
-            mask = np.ones(y.shape[0]).astype(bool)
-        self.obs(y=y,x=x,mask=mask)
-        self.sys(y=x[1:],x=x[:-1],mask=mask[1:])
-        self.pri(y=x[[0]],mask=mask[[0]])
+    def forward(self,y,x,mask_time=None,mask_data=None):
+        mask_time, mask_data = self._check_input(y,x,mask_time=mask_time,mask_data=mask_data)
+        
+        rz, cz = np.nonzero(mask_data & mask_time[:,None])
+
+        _y = y[rz,cz]
+        _x = x[rz]
+        _x2 = x[1:][mask_time[1:]]
+        _x1 = x[:-1][mask_time[1:]]
+        _x0 = x[[0]][mask_time[[0]]]
+
+        self.obs(y=_y,x=_x)
+        self.sys(y=_x2,x=_x1)
+        self.pri(y=_x0)
 
 
 class LDS(Module):
@@ -736,7 +797,7 @@ class LDS(Module):
         return self.theta[k].P0
 
     def initialize(self):
-        self.theta = Sequential(*[StateSpace(output_dim=self.output_dim,state_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov) for i in range(self.states)])
+        self.theta = TimePlate(*[StateSpace(output_dim=self.output_dim,state_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov) for i in range(self.states)])
         self.I = np.eye(self.state_dim)
         
     def transition(self,x,z:int=0):
@@ -776,14 +837,14 @@ class LDS(Module):
         mu = V @ ell
         return mu, (V)
 
-    def _forward(self,y,z):
+    def _forward(self,y,z,mask):
         mu = np.zeros((self.T,self.state_dim))
         V = np.zeros((self.T,self.state_dim,self.state_dim))
         m = self.m0(z[0]).copy()
         P = self.P0(z[0]).copy()
         for n in range(self.T):
             ''' update'''
-            mu[n], V[n] = self.update(y[n],m,P,z=z[n])
+            mu[n], V[n] = self.update(y[n,mask[n]],m,P,z=z[n])
             ''' predict '''
             if n < self.T-1:
                 m,P = self.predict(mu[n], V[n], z=z[n+1])
@@ -801,31 +862,43 @@ class LDS(Module):
             V[t] = (self.I - K_star @ self.A(state)) @ V[t]
             self._parameters['x'][t] = mvn.rvs(mu[t],V[t])
 
-    def sample_x(self,y,z):
-        mu, V = self._forward(y,z)
+    def sample_x(self,y,z,mask):
+        mu, V = self._forward(y,z,mask)
         self._backward(mu,V,z)
         
-    def _check_data(self,y,z):
-        self.T = y.shape[0]
-        self.output_dim = y.shape[1]
+    def _check_input(self,y,z=None,mask=None):
+        if y.ndim != 3:
+            raise ValueError("input must be 3d")
+        if mask is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask.ndim != 2:
+            raise ValueError("mask must be 2d")
+        if y.shape[:2] != mask.shape[:2]:
+            raise ValueError("mask must match y in dimensions")
+        self.T, self.N, self.output_dim = y.shape
+
         if self.x.shape[0] != self.T:
             self._parameters['x'] = np.zeros((self.T,self.state_dim))
 
         if z is None:
             # Same state for all time.
             z = np.zeros(self.T).astype(int)
-        else:
-            if z.shape[0] != self.T:
-                raise ValueError("1st dim of z and y must be equal.")
-        return z
+        if z.shape[0] != self.T:
+            raise ValueError("1st dim of z and y must be equal.")
+        return z, mask
 
-    def forward(self,y,z=None):
+    # Also need mask for 3d.
+    def forward(self,y,z=None,mask=None):
         # z is the state of the system at time t. 
-        z = self._check_data(y=y,z=z)
-        self.sample_x(y,z=z)
+        # mask is which data points are there
+        z,mask = self._check_input(y=y,z=z,mask=mask)
+        self.sample_x(y,z=z,mask=mask)
         if self.parameter_sampling == True:
-            self.theta(y=y,x=self.x,labels=z)
+            self.theta(y=y,x=self.x,labels=z,mask=mask)
         
+
+
+
 class SLDS(Module):
     r'''
         Bayesian switching linear dynamical system.
@@ -881,12 +954,16 @@ class SLDS(Module):
             self._dimz = value
             self.initialize()
 
-    def loglikelihood(self,y):
+    def loglikelihood(self,y,mask):
         logl = np.zeros((self.T, self.states))
+        logly = np.zeros((self.T,self.N))
+        rz, cz = np.nonzero(mask)
+        
         for s in range(self.states):
             mu =  self.lds.x @ self.lds.C(s).T
             Sigma = self.lds.R(s)
-            logl[:,s] = mvn_logpdf(y,mu,Sigma)
+            logly[rz,cz] = mvn_logpdf(y[rz,cz],mu[rz],Sigma)
+            logl[:,s] = logly.sum(1)
 
             m = self.lds.m0(s)[None,:]
             P = self.lds.P0(s)
@@ -898,13 +975,103 @@ class SLDS(Module):
 
         return logl
 
-    def _check_data(self,y):
-        self.T = y.shape[0]
-        self.output_dim = y.shape[1]
+    def _check_data(self,y,mask=None):
+        if y.ndim != 3:
+            raise ValueError("input must be 3d")
+        if mask is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask.ndim != 2:
+            raise ValueError("mask must be 2d")
+        if y.shape[:2] != mask.shape[:2]:
+            raise ValueError("mask must match y in dimensions")
+        self.T, self.N, self.output_dim = y.shape
+
         if self.hmm.z.shape[0] != self.T:
             self.hmm._parameters['z'] = np.random.randint(0,self.states,self.T)
 
+        return mask
+
+    def forward(self,y,mask=None):
+        mask = self._check_data(y=y,mask=mask)
+        self.lds(y=y,z=self.hmm.z,mask=mask)
+        self.hmm(logl=self.loglikelihood(y,mask))
+
+#* RE-DO GMM first with TXNXM -> mix is TXNXC for simplicty, or L <- mask.sum()
+class MLDS(Module):
+    def __init__(self, output_dim=1, state_dim=2, states=1, components=1, parameter_sampling=True, hyper_sample=True, full_covariance=True):
+        self.components = components
+        self._dimy = output_dim
+        self._dimz = states
+        self._dimx = state_dim
+
+        self.kwds = dict(output_dim=output_dim, state_dim=state_dim, states=states, parameter_sampling=parameter_sampling, hyper_sample=hyper_sample, full_covariance=full_covariance)
+
+        
+
+    def initialize(self):
+        self.kwds['output_dim'] = self.output_dim
+        self.kwds['state_dim'] = self.state_dim
+        self.kwds['states'] = self.states
+        self.mix = Mixture(components=self.components)
+        self.lds = Plate(*[LDS(**self.kwds) for i in range(self.components)])
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
+
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+            self.initialize()
+
+    @property
+    def states(self):
+        return self._dimz
+    @states.setter
+    def states(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimz:
+            self._dimz = value
+            self.initialize()
+
+    def loglikelihood(self,y,mask):
+        loglike = np.zeros((self.TN,self.components))
+        rz, cz = np.nonzero(mask)
+        for k in range(self.components):
+            z = 0
+            mu = self.lds[k].theta[z].A.ravel()
+            Sigma = self.lds[k].theta[z].Q
+            loglike[:,k] = mvn.logpdf(y[rz,cz],mu,Sigma)
+        return loglike
+
+    def _check_input(self,y):
+        if y.ndim != 3:
+            raise ValueError("input must be 3d")
+        if mask is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask.ndim != 2:
+            raise ValueError("mask must be 2d")
+        if y.shape[:2] != mask.shape[:2]:
+            raise ValueError("mask must match y in dimensions")
+        self.T, self.N, self.output_dim = y.shape
+
+        self.TN = mask.sum()
+        if self.mix.z.shape[0] != self.TN:
+            self.z._parameters['z'] = np.random.randint(0,self.components,(self.TN))
+        return mask
+
     def forward(self,y):
-        self._check_data(y=y)
-        self.lds(y=y,z=self.hmm.z)
-        self.hmm(logl=self.loglikelihood(y))
+        mask = self._check_input(y,mask)
+        self.mix(self.loglikelihood(y,mask))
+        self.lds(y,self.mix.z)
