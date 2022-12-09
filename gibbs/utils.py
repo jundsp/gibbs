@@ -93,3 +93,21 @@ def hmm_generate(n=100,output_dim=2,n_components=3,expected_duration=10):
         x[i] = np.random.multivariate_normal(mu[z[i]],Sigma[z[i]])
         predict = Gamma[z[i]]
     return x, z
+
+def lds_generate(T=100):
+    t = np.arange(T)
+    y = np.exp(1j*2*np.pi*4*t/100)
+    y = np.stack([y.real,y.imag],-1)
+    y += np.random.normal(0,.05,y.shape)
+    return y
+
+def slds_generate(T=100):
+    T1 = T//2
+    t = np.arange(T1)
+    y1 = np.exp(1j*2*np.pi*4*t/100)*np.exp(-t/100)
+    y2 = np.exp(1j*2*np.pi*2*t/100-1j*np.pi)*np.exp(-t/100)
+    y3 = np.exp(1j*2*np.pi*.5*t/100-1j*np.pi)*np.exp(-t/100)
+    y = np.concatenate([y1,y2],0)
+    y = np.stack([y.real,y.imag],-1)
+    y += np.random.normal(0,.01,y.shape)
+    return y
