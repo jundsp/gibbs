@@ -111,3 +111,13 @@ def slds_generate(T=100):
     y = np.stack([y.real,y.imag],-1)
     y += np.random.normal(0,.01,y.shape)
     return y
+
+def get_colors():
+    k = np.arange(8)
+    cl = ['Dark2', 'Set1', 'Set2']
+    colors = np.concatenate([plt.get_cmap(s)(k) for s in cl],0)
+    return colors
+
+def get_scatter_kwds():
+    kwds = dict(alpha=.5,s=15,edgecolor='none')
+    return kwds
