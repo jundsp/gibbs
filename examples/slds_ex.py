@@ -4,28 +4,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-#%%
 T = 200
 np.random.seed(123)
 y = slds_generate(T=T)
-# y = y[:,[0]]
-# y += np.sin(2*np.pi*np.arange(T)/T*2.5)[:,None]
-y = np.stack([y]*2,1)
-y += np.random.normal(0,1e-1,y.shape)
+y = y[:,None]
 mask = np.ones(y.shape[:2]).astype(bool)
-mask[70:130] = False
+T = y.shape[0]
+plt.plot(y[:,0])
 
 #%%
 np.random.seed(123)
-model = SLDS(output_dim=2,state_dim=4,states=6,parameter_sampling=True)
+model = SLDS(output_dim=2,state_dim=2,states=4)
 sampler = Gibbs()
-
+logl = []
 #%%
 iters = 100
 for iter in tqdm(range(iters)):
     model(y,mask=mask)
     sampler.step(model.named_parameters())
+    logl.append(model.loglikelihood(y=y,mask=mask).sum())
 
+plt.plot(logl)
+plt.xlabel('sample'),plt.ylabel('log likelihood')
 #%%
 sampler.get_estimates()
 x_hat = model.lds.x

@@ -6,29 +6,37 @@ import os
 
 
 #%%
-T = 200
+T = 400
 np.random.seed(123)
-y = lds_generate(T=T)
-y *= np.sin(2*np.pi*np.arange(T)/100*6)[:,None]
-y = y[:,[0]]
-y = np.stack([y]*2,1)
-y += np.random.normal(0,1e-1,y.shape)
+f = np.array([6.5/200, 8.25/200])
+theta = 2*np.pi*np.random.randn(len(f))
+n = np.arange(T)
+x1 = np.sin(2*np.pi*n[:,None] * f[None,:] + theta[None,:]).sum(-1)
+x2 = np.cos(2*np.pi*n[:,None] * f[None,:] + theta[None,:]).sum(-1)
+x = np.stack([x1],-1)
+x /= np.abs(x).max()
+x += np.random.normal(0,.4,x.shape)
+y = x[:,None,:]
+
 mask = np.ones(y.shape[:2]).astype(bool)
-mask[70:130] = False
-mask[:20] = False
-mask[-20:] = False
+mask[200:] = False
+
+plt.plot(y,'.')
 
 #%%
 np.random.seed(123)
-model = LDS(output_dim=2,state_dim=8,parameter_sampling=True)
+model = LDS(output_dim=2,state_dim=8,parameter_sampling=True,full_covariance=False)
 sampler = Gibbs()
 
+logl = []
 #%%
 iters = 100
 for iter in tqdm(range(iters)):
     model(y,mask=mask)
     sampler.step(model.named_parameters())
+#     logl.append(model.loglikelihood(y,mask=mask).sum())
 
+# plt.plot(logl)
 #%%
 sampler.get_estimates()
 x_hat = sampler._estimates['x']
@@ -43,7 +51,7 @@ rz,cz = np.nonzero(mask)
 plt.figure(figsize=(4,3))
 
 plt.scatter(rz,y[rz,cz,0],c='b',**get_scatter_kwds())
-plt.plot(y_chain.transpose(1,0,2)[:,:,0],'g',alpha=4/y_chain.shape[0]);
+plt.plot(y_chain.transpose(1,0,2)[:,:,0],'g',alpha=1/y_chain.shape[0]);
 plt.plot(y_ev,'g')
 # plt.plot(y_hat);
 plt.xlim(0,T)
@@ -55,6 +63,6 @@ path_out = "imgs"
 os.makedirs(path_out,exist_ok=True)
 plt.savefig(os.path.join(path_out,"lds_ex.pdf"))
 
-
-
+# %%
+plt.plot(model.loglikelihood(y,mask=mask))
 # %%

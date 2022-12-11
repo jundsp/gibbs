@@ -10,6 +10,8 @@ import scipy.linalg as la
 
 from .utils import mvn_logpdf
 
+#* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
+
 class Module(object):
     r'''
     Gibbs module base class.
@@ -328,6 +330,12 @@ class NormalWishart(Module):
         Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W) )
         return la.inv(Lambda)
 
+    def loglikelihood(self,y,x=None,mask=None):
+        x,mask = self._check_input(y,x,mask)
+        mu = x @ self.A.T
+        loglike = mvn_logpdf(y[mask],mu[mask],self.Q)
+        return loglike
+
     def _check_input(self,y,x=None,mask=None):
         if y.ndim != 2:
             raise ValueError("y must be 2d")
@@ -449,7 +457,7 @@ class GMM(Module):
         loglike = np.zeros((self.T,self.N,self.components))
         rz, cz = np.nonzero(mask)
         for k in range(self.components):
-            loglike[rz,cz,k] = mvn.logpdf(y[rz,cz],self.theta[k].A.ravel(),self.theta[k].Q)
+            loglike[rz,cz,k] = self.theta[k].loglikelihood(y[rz,cz])
         return loglike
 
     def _check_input(self,y,mask=None):
@@ -867,13 +875,24 @@ class LDS(Module):
             P = self.A(state) @ V[t] @ self.A(state).T + self.Q(state)
             K_star = V[t] @ self.A(state).T @ la.inv(P)
 
-            mu[t] = mu[t] + K_star @ (self.x[t+1] - m)
-            V[t] = (self.I - K_star @ self.A(state)) @ V[t]
-            self._parameters['x'][t] = mvn.rvs(mu[t],V[t])
+            _mu = mu[t] + K_star @ (self.x[t+1] - m)
+            _V = (self.I - K_star @ self.A(state)) @ V[t]
+            self._parameters['x'][t] = mvn.rvs(_mu,_V)
 
     def sample_x(self,y,z,mask):
         mu, V = self._forward(y,z,mask)
         self._backward(mu,V,z)
+
+    def loglikelihood(self,y,z=None,mask=None):
+        z, mask = self._check_input(y=y,z=z,mask=mask)
+        T,N = y.shape[:2]
+        logl = np.zeros((T,N))
+        for t in range(T):
+            state = z[t]
+            mu = self.C(state) @ self.x[t]
+            Sigma = self.R(state)
+            logl[t,mask[t]] = mvn_logpdf(y[t,mask[t]],mu,Sigma)
+        return logl
         
     def _check_input(self,y,z=None,mask=None):
         if y.ndim != 3:
@@ -896,7 +915,6 @@ class LDS(Module):
             raise ValueError("1st dim of z and y must be equal.")
         return z, mask
 
-    # Also need mask for 3d.
     def forward(self,y,z=None,mask=None):
         # z is the state of the system at time t. 
         # mask is which data points are there
@@ -961,7 +979,7 @@ class SLDS(Module):
             self._dimz = value
             self.initialize()
 
-    def loglikelihood(self,y,mask):
+    def logjoint(self,y,mask):
         logl = np.zeros((self.T, self.states))
         logly = np.zeros((self.T,self.N))
         rz, cz = np.nonzero(mask)
@@ -982,6 +1000,9 @@ class SLDS(Module):
 
         return logl
 
+    def loglikelihood(self,y,mask):
+        return self.lds.loglikelihood(y,z=self.hmm.z,mask=mask)
+
     def _check_data(self,y,mask=None):
         if y.ndim != 3:
             raise ValueError("input must be 3d")
@@ -1001,4 +1022,185 @@ class SLDS(Module):
     def forward(self,y,mask=None):
         mask = self._check_data(y=y,mask=mask)
         self.lds(y=y,z=self.hmm.z,mask=mask)
-        self.hmm(logl=self.loglikelihood(y,mask))
+        self.hmm(logl=self.logjoint(y,mask))
+
+
+
+
+class MLDS(Module):
+    r'''
+        Finite Bayesian mixture of linear dynamical systems.
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+    '''
+    def __init__(self,output_dim=1,state_dim=2,components=3,parameter_sampling=True,hyper_sample=True,full_covariance=True):
+        super(MLDS,self).__init__()
+        self._dimy = output_dim
+        self._dimx = state_dim
+        self._dimz = components
+        self.parameter_sampling = parameter_sampling
+        self.hyper_sample = hyper_sample
+        self.full_covariance = full_covariance
+        self.initialize()
+
+    def initialize(self):
+        self.lds = Plate(*[LDS(output_dim=self.output_dim,state_dim=self.state_dim,parameter_sampling=self.parameter_sampling,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance) for i in range(self.components)])
+        self.mix = Mixture(components=self.components)
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
+
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+            self.initialize()
+
+    @property
+    def components(self):
+        return self._dimz
+    @components.setter
+    def components(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimz:
+            self._dimz = value
+            self.initialize()
+
+    def loglikelihood(self,y,mask):
+        loglike = np.zeros((self.T,self.N,self.components))
+        for k in range(self.components):
+            loglike[:,:,k] = self.lds[k].loglikelihood(y,mask=mask)
+        return loglike
+
+    def _check_input(self,y,mask=None):
+        if y.ndim != 3:
+            raise ValueError("input must be 3d")
+        if mask is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask.ndim != 2:
+            raise ValueError("mask must be 2d")
+        if y.shape[:2] != mask.shape[:2]:
+            raise ValueError("mask must match y in dimensions")
+        self.T, self.N, self.output_dim = y.shape
+        return mask
+
+    def forward(self,y,mask=None):
+        mask = self._check_input(y,mask)
+        loglike = self.loglikelihood(y,mask)
+        rz, cz = np.nonzero(mask)
+        self.mix(loglike[rz,cz])
+
+        for k in range(self.components):
+            _mask = mask.copy()
+            _mask[rz,cz] = _mask[rz,cz] & (self.mix.z ==k)
+            self.lds[k](y,mask=_mask)
+
+
+
+class MSLDS(Module):
+    r'''
+        Finite Bayesian mixture of switching linear dynamical systems.
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2022
+    '''
+    def __init__(self,output_dim=1,state_dim=2,states=1,components=3,parameter_sampling=True,hyper_sample=True,full_covariance=True,expected_duration=10):
+        super(MSLDS,self).__init__()
+        self._dimy = output_dim
+        self._dimx = state_dim
+        self._dimc = components
+        self._dimz = states
+        self.parameter_sampling = parameter_sampling
+        self.hyper_sample = hyper_sample
+        self.full_covariance = full_covariance
+        self.expected_duration = expected_duration
+        self.initialize()
+
+    def initialize(self):
+        self.slds = Plate(*[SLDS(output_dim=self.output_dim,state_dim=self.state_dim,states=self.states,parameter_sampling=self.parameter_sampling,hyper_sample=self.hyper_sample,full_covariance=self.full_covariance,expected_duration=self.expected_duration) for i in range(self.components)])
+        self.mix = Mixture(components=self.components)
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
+
+    @property
+    def state_dim(self):
+        return self._dimx
+    @state_dim.setter
+    def state_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimx:
+            self._dimx = value
+            self.initialize()
+
+    @property
+    def states(self):
+        return self._dimz
+    @states.setter
+    def states(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimz:
+            self._dimz = value
+            self.initialize()
+
+    @property
+    def components(self):
+        return self._dimc
+    @components.setter
+    def components(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimc:
+            self._dimc = value
+            self.initialize()
+
+    def loglikelihood(self,y,mask):
+        loglike = np.zeros((self.T,self.N,self.components))
+        for k in range(self.components):
+            loglike[:,:,k] = self.slds[k].loglikelihood(y,mask=mask)
+        return loglike
+
+    def _check_input(self,y,mask=None):
+        if y.ndim != 3:
+            raise ValueError("input must be 3d")
+        if mask is None:
+            mask = np.ones(y.shape[:2]).astype(bool)
+        if mask.ndim != 2:
+            raise ValueError("mask must be 2d")
+        if y.shape[:2] != mask.shape[:2]:
+            raise ValueError("mask must match y in dimensions")
+        self.T, self.N, self.output_dim = y.shape
+        return mask
+
+    def forward(self,y,mask=None):
+        mask = self._check_input(y,mask)
+        rz, cz = np.nonzero(mask)
+        self.mix._check_data(np.zeros((len(rz),self.components)))
+
+        for k in range(self.components):
+            _mask = mask.copy()
+            _mask[rz,cz] = _mask[rz,cz] & (self.mix.z ==k)
+            self.slds[k](y,mask=_mask)
+
+        loglike = self.loglikelihood(y,mask)
+        self.mix(loglike[rz,cz])

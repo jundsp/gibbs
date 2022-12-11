@@ -15,7 +15,7 @@ model = GMM(output_dim=1,components=6)
 sampler = Gibbs()
 
 #%%
-iters = 10
+iters = 100
 for iter in tqdm(range(iters)):
     model(y)
     sampler.step(model.named_parameters())
@@ -28,7 +28,7 @@ z_hat = sampler._estimates['mix.z']
 plt.figure(figsize=(4,3))
 colors = get_colors()
 kwds = get_scatter_kwds()
-plt.scatter(y[:,0],y[:,1],c=colors[z_hat],**kwds)
+plt.scatter(y[0,:,0],y[0,:,1],c=colors[z_hat],**kwds)
 for k in np.unique(z_hat):
     mu = sampler._estimates['theta.{}.A'.format(k)].ravel()
     Sigma = sampler._estimates['theta.{}.Q'.format(k)]

@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as  plt
 
 class Data(object):
     def __init__(self,y: np.ndarray,mask:np.ndarray=None) -> None:
@@ -31,6 +32,17 @@ class Data(object):
         val = np.atleast_2d(val).astype(bool)
         self._mask = val
 
+        self._nonzero()
+
+    def _nonzero(self):
+        self._rnz, self._cnz = np.nonzero(self.mask)
+
+    def flatten(self):
+        return self.value[self._rnz,self._cnz]
+
+    def time(self):
+        return self._rnz
+
     @property
     def T(self) -> int:
         return self._T
@@ -40,6 +52,9 @@ class Data(object):
     @property
     def dim(self) -> int:
         return self._M
+
+    def plot(self):
+        plt.plot(self.time(),self.flatten(),'.')
 
     def __len__(self) -> int:
         return self.value.shape[0]
@@ -57,3 +72,8 @@ if __name__ == "__main__":
     mask = y[:,:,0].astype(bool)
     data.mask = mask
     print(data)
+
+    print(data.flatten())
+    print(data.time())
+
+    data.plot()
