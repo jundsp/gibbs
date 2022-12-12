@@ -1,5 +1,6 @@
 #%%
-from gibbs import Gibbs, LDS, lds_generate, tqdm, get_scatter_kwds, get_colors
+from gibbs import Gibbs, lds_generate, tqdm, get_scatter_kwds, get_colors
+from gibbs.modules.lds import LDS
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -21,7 +22,7 @@ y = x[:,None,:]
 mask = np.ones(y.shape[:2]).astype(bool)
 mask[200:] = False
 
-plt.plot(y,'.')
+plt.plot(y[:,:,0],'.')
 
 #%%
 np.random.seed(123)
@@ -65,4 +66,18 @@ plt.savefig(os.path.join(path_out,"lds_ex.pdf"))
 
 # %%
 plt.plot(model.loglikelihood(y,mask=mask))
+# %%
+chain = sampler.get_chain(burn_rate=.5,flatten=False)
+fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
+for ii,p in enumerate(chain):
+    if ('.x' in p) | ('.z' in p):
+        _x = chain[p]
+        _x = np.swapaxes(_x,0,1)
+        _x = _x.reshape(_x.shape[0],-1)
+    else:
+        _x = chain[p]
+        _x = _x.reshape(_x.shape[0],-1)
+    ax[ii].plot(_x,'k',alpha=.1)
+    ax[ii].set_title(p)
+plt.tight_layout()
 # %%

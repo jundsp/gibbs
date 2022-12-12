@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as  plt
+import sines
+import soundfile as sf
 
 class Data(object):
     def __init__(self,y: np.ndarray,mask:np.ndarray=None) -> None:
@@ -67,11 +69,31 @@ class Data(object):
 
 
 if __name__ == "__main__":
-    y = np.random.randn(4,3,2)
-    data = Data(y)
-    mask = y[:,:,0].astype(bool)
-    data.mask = mask
-    print(data)
+    audio,sr = sf.read("/Users/julian/Documents/MATLAB/sounds/greasy.wav")
+    sm = sines.Sines(step_size=2,confidence=.9,sr_down=16e3,resolutions=1,cent_threshold=10,window_size=20)
+    features = sm(audio,sr)
+
+    frame = features['frame']
+    t = np.unique(frame)
+    T = t.max()
+    xx = features['frequency']
+    yy = features['amplitude'][:,None]
+    M = yy.shape[-1]
+
+    from itertools import groupby
+    group = groupby(frame)
+    N = max(group, key=lambda k: len(list(k[1])))[0]
+    y = np.zeros((T,N,M))
+    x = np.zeros((T,N))
+    mask = np.zeros((T,N)).astype(bool)
+    for t in range(T):
+        idx = frame==t
+        n = idx.sum()
+        x[t,:n] = xx[idx]
+        y[t,:n] = yy[idx]
+        mask[t,:n] = True
+
+    data = Data(y=y,mask=mask)
 
     print(data.flatten())
     print(data.time())

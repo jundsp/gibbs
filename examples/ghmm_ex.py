@@ -1,5 +1,6 @@
 #%%
-from gibbs import Gibbs, GHMM, hmm_generate, tqdm, get_colors, get_scatter_kwds, plot_cov_ellipse
+from gibbs import Gibbs, hmm_generate, tqdm, get_colors, get_scatter_kwds, plot_cov_ellipse
+from gibbs.modules.hmm import GHMM
 import numpy as np
 import matplotlib.pyplot as plt
 import os

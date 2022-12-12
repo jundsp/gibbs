@@ -57,10 +57,10 @@ def mvn_logpdf(y,mu,Sigma):
     
     
 def gmm_generate(n=100,output_dim=2,n_components=3):
-    mu = mvn.rvs(np.zeros(output_dim),np.eye(output_dim),n_components
+    mu = mvn.rvs(np.zeros(output_dim),np.eye(output_dim)*5,n_components
     )
-    nu = output_dim+1.0
-    W = np.eye(output_dim)*10.0 / nu
+    nu = output_dim+.1
+    W = np.eye(output_dim)*5.0 / nu
 
     Lambda = wishart.rvs(nu,W,n_components)
     Sigma = [la.inv(Lambda[i]) for i in range(n_components)]
@@ -105,9 +105,9 @@ def lds_generate(T=100):
 def slds_generate(T=100):
     T1 = T//2
     t = np.arange(T1)
-    y1 = np.exp(1j*2*np.pi*4*t/100)*np.exp(-t/100)
-    y2 = np.exp(1j*2*np.pi*2*t/100-1j*np.pi)*np.exp(-t/100)
-    y3 = np.exp(1j*2*np.pi*.5*t/100-1j*np.pi)*np.exp(-t/100)
+    y1 = np.exp(1j*2*np.pi*4*t/100)*np.exp(-2*t/100)
+    y2 = np.exp(1j*2*np.pi*1*t/100-1j*np.pi)*np.exp(-t/100)
+    y3 = np.exp(1j*2*np.pi*.25*t/100-1j*np.pi)*np.exp(-t/100)
     y = np.concatenate([y1,y2],0)
     y = np.stack([y.real,y.imag],-1)
     y += np.random.normal(0,.01,y.shape)

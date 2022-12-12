@@ -1,3 +1,3 @@
 from .utils import * 
 from .core import *  
-from .module import *
+from .modules import *

@@ -8,24 +8,21 @@ import os
 T = 200
 np.random.seed(123)
 y = lds_generate(T=T)
-y = np.sin(2*np.pi*np.arange(T)/200*1)[:,None]
+y = np.sin(2*np.pi*np.arange(T)/200*1)[:,None]*.7
 y = y[:,[0]]
-y = np.stack([y]*4,1)
+y = np.stack([y]*3,1)
 y[:,:2] = np.cos(2*np.pi*np.arange(T)/200*3)[:,None,None]
-y += np.random.normal(0,1e-1,y.shape)
+y += np.random.normal(0,.2,y.shape)
 mask = np.ones(y.shape[:2]).astype(bool)
-# mask[70:130] = False
-# mask[:20] = False
-# mask[-20:] = False
 plt.plot(y[:,:,0],'k.')
 #%%
 np.random.seed(123)
-model = MLDS(output_dim=2,state_dim=2,components=3,parameter_sampling=True)
+model = MLDS(output_dim=2,state_dim=6,components=4,parameter_sampling=True,hyper_sample=False)
 sampler = Gibbs()
 
 logl = []
 #%%
-iters = 10
+iters = 60
 for iter in tqdm(range(iters)):
     model(y,mask=mask)
     sampler.step(model.named_parameters())
@@ -58,7 +55,7 @@ plt.tight_layout()
 
 path_out = "imgs"
 os.makedirs(path_out,exist_ok=True)
-# plt.savefig(os.path.join(path_out,"mlds_ex.pdf"))
+plt.savefig(os.path.join(path_out,"mlds_ex.pdf"))
 
 # %%
 logrho = model.loglikelihood(y,mask=mask)
@@ -66,10 +63,10 @@ logrho -= logsumexp(logrho,-1)[:,:,None]
 logrho = logrho.reshape(-1,logrho.shape[-1])
 plt.imshow(np.exp(logrho).T,aspect='auto',interpolation='none')
 # %%
-chain = sampler.get_chain(burn_rate=.8,flatten=False)
+chain = sampler.get_chain(burn_rate=.5,flatten=False)
 fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
 for ii,p in enumerate(chain):
-    if '.x' in p:
+    if ('.x' in p) | ('.z' in p):
         _x = chain[p]
         _x = np.swapaxes(_x,0,1)
         _x = _x.reshape(_x.shape[0],-1)

@@ -1,13 +1,14 @@
 #%%
-from gibbs import Gibbs, GMM, gmm_generate, tqdm, plot_cov_ellipse, get_colors, get_scatter_kwds
+from gibbs import Gibbs, gmm_generate, tqdm, plot_cov_ellipse, get_colors, get_scatter_kwds
+from gibbs.modules.gmm import GMM
 import numpy as np
 import os
 import matplotlib.pyplot as plt
 
 #%%
-N = 200
+N = 500
 np.random.seed(123)
-y = gmm_generate(n=N,n_components=4)[0]
+y = gmm_generate(n=N,n_components=3)[0]
 y = y[None,:,:]
 #%%
 np.random.seed(123)
@@ -16,10 +17,13 @@ sampler = Gibbs()
 
 #%%
 iters = 100
+logl = []
 for iter in tqdm(range(iters)):
     model(y)
     sampler.step(model.named_parameters())
+    logl.append(model.logjoint(y).sum())
 
+plt.plot(logl)
 sampler.get_estimates()
 
 z_hat = sampler._estimates['mix.z']
