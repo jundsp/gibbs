@@ -12,8 +12,8 @@ class Harmonic(Module):
         self.H = H
         self.tau = tau
 
-        self.var_harmonic = 1
-        self.var_residual = 500
+        self.var_harmonic = 7
+        self.var_residual = 1000
 
         self.initialize()
 
@@ -31,11 +31,11 @@ class Harmonic(Module):
 
     def sample_x(self,data,z):
         h_idx = z < self.H
-        y = data.output[h_idx]
-        k = self.coeffs[z[h_idx]]
+        y = data.output[h_idx].ravel()
+        k = self.coeffs[z[h_idx]].ravel()
 
         # Have var be sampled, or prior? 
-        lam0 = (1e-2)**2.0
+        lam0 = (.2e-2)**2.0
         m0 = 500.0
         ell0 = m0*lam0
 
@@ -60,13 +60,14 @@ class Harmonic(Module):
         self.sample_x(data,z=self.hmm.z)
 
 
+#%%
 np.random.seed(123)
-f0 = 440.1
-N = 30
+f0 = np.random.uniform(35,1500,1)
+N = 20
 y = 1.0*np.arange(1,N+1)*f0
-y += np.random.normal(0,2,y.shape)
-noise = np.random.uniform(0,y.max(),N)
-y[N//4:] = noise[N//4:]
+y += np.random.normal(0,5,y.shape)
+noise = np.random.uniform(0,4000,N)
+y[N//2:] = noise[N//2:]
 y = np.sort(y)
 y = y[:,None]
 
@@ -74,10 +75,10 @@ t = np.arange(y.shape[0])
 features = dict(frequency=y,amplitude=y*0,nbd=y*0,ndd=y*0)
 data = Data(y,time=t)
 
-data.plot()
+# data.plot()
 
 #%%
-model = Harmonic()
+model = Harmonic(tau=2)
 sampler = Gibbs()
 
 #%%
@@ -85,7 +86,8 @@ for iter in tqdm(range(1000)):
     model(data)
     sampler.step(model.named_parameters())
 
-sampler.get_estimates(burn_rate=.75)
+#%%
+sampler.get_estimates(burn_rate=.9)
 z_hat = sampler._estimates['hmm.z']
 x_hat = sampler._estimates['x']
 plt.plot(z_hat)
@@ -102,4 +104,7 @@ plt.grid()
 
 # %%
 plt.plot(chain['x'])
+# %%
+
+print("targ = {}\nesti = {}".format(f0,x_hat))
 # %%

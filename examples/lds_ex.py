@@ -7,7 +7,7 @@ import os
 
 
 #%%
-T = 400
+T = 300
 np.random.seed(123)
 f = np.array([6.5/200, 8.25/200])
 theta = 2*np.pi*np.random.randn(len(f))
