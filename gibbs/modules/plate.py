@@ -57,10 +57,10 @@ class Plate(Module):
         return self
 
     #** How to generalize this? Modules will have to have the same input
-    def forward(self,y,labels,x=None):
+    def forward(self,y,labels):
         for k,m in enumerate(self._modules):
             idx = (labels == k)
-            self._modules[m](y,x=x,mask=idx)
+            self._modules[m](y,mask=idx)
 
 class TimePlate(Plate):
     def forward(self,y,labels,x=None,mask=None):

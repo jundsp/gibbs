@@ -4,67 +4,120 @@ import sines
 import soundfile as sf
 
 class Data(object):
-    def __init__(self,y: np.ndarray,mask:np.ndarray=None) -> None:
-        self.value = y
-        self.mask = mask
+    def __init__(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None) -> None:
+        self.load(y=y,time=time,x=x)
+
+    def load(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None) -> None:
+        self.output = y
+        self.time = time
+        self.input = x
         
     @property
-    def value(self) -> np.ndarray:
-        return self._value
+    def output(self) -> np.ndarray:
+        return self._output
 
-    @value.setter
-    def value(self,val: np.ndarray) -> None:
-        if val.ndim != 3:
-            raise ValueError("data values must be 3d: (time x obs x dim)")
-        self._value = val
-        self._T,self._N,self._M = val.shape
+    @output.setter
+    def output(self,val: np.ndarray) -> None:
+        if val is None:
+            val = np.zeros((0,0))
+        if val.ndim != 2:
+            raise ValueError("data values must be 2d: (obs x dim)")
+        self._output = val
+        self._L,self._dimy = val.shape
 
     @property
-    def mask(self) -> np.ndarray:
-        return self._mask
-    @mask.setter
-    def mask(self,val: np.ndarray) -> None:
+    def time(self) -> np.ndarray:
+        return self._time
+    @time.setter
+    def time(self,val: np.ndarray) -> None:
         if val is None:
-            val = np.ones(self.value.shape[:2]).astype(bool)
-        if val.ndim != 2:
-            raise ValueError("mask must be 2d")
-        if val.shape[:2] != self.value.shape[:2]:
+            val = np.zeros(self.output.shape[0])
+        if val.ndim != 1:
+            raise ValueError("time must be 1d")
+        if val.shape[0] != self.output.shape[0]:
             raise ValueError("fist 2 dims of value and mask must match")
         
-        val = np.atleast_2d(val).astype(bool)
-        self._mask = val
+        val = np.atleast_1d(val).astype(int)
+        self._time = val
 
-        self._nonzero()
+        tunique = np.unique(val)
+        if len(tunique) > 0:
+            self._T = tunique.max()+1
+        else:
+            self._T = 0
 
-    def _nonzero(self):
-        self._rnz, self._cnz = np.nonzero(self.mask)
+    @property
+    def input(self) -> np.ndarray:
+        return self._input
 
-    def flatten(self):
-        return self.value[self._rnz,self._cnz]
+    @input.setter
+    def input(self,val: np.ndarray) -> None:
+        if val is None:
+            val = np.zeros((self.output.shape[0],1))
+        if val.ndim != 2:
+            raise ValueError("input must be 2d")
+        if val.shape[0] != self.output.shape[0]:
+            raise ValueError("fist dim of input and output must match")
 
-    def time(self):
-        return self._rnz
+        self._input = val
+
+    def y(self,t):
+        return self.output[self.time == t]
+
+    def x(self,t):
+        return self.input[self.time == t]
+
+    def count(self,t):
+        return (self.time == t).sum()
+
+    def mask(self,indices: np.ndarray=None):
+        self._mask = np.zeros(self._L).astype(bool)
+        self._mask[indices] = True
+
 
     @property
     def T(self) -> int:
         return self._T
     @property
-    def N(self) -> int:
-        return self._N
+    def L(self) -> int:
+        return self.__len__()
     @property
     def dim(self) -> int:
-        return self._M
+        return self._dimy
+
+    def load_block(self,y,mask=None,x=None):
+        if y.ndim != 3:
+            assert ValueError("Block output must be 3d.")
+        if mask is None:
+            mask = np.ones(y.shape[:2])
+        if x is None:
+            x = np.zeros((y.shape[0],y.shape[1],1))
+        if mask.shape[:2] != y.shape[:2]:
+            assert ValueError("dims must match in mask and output")
+        if x.shape[:2] != y.shape[:2]:
+            assert ValueError("dims must match in input and output")
+
+        rz,cz = np.nonzero(mask)
+        self.output = y[rz,cz]
+        self.input = x[rz,cz]
+        self.time = rz
+
 
     def plot(self):
-        plt.plot(self.time(),self.flatten(),'.')
+        if self.T < 2:
+            if self.dim == 2:
+                plt.scatter(self.output[:,0],self.output[:,1],c='k',s=15)
+        else:
+            for d in range(self.dim):
+                plt.scatter(self.time,self.output[:,d],c='k',alpha=.5)
 
     def __len__(self) -> int:
-        return self.value.shape[0]
+        return self.output.shape[0]
 
     def __repr__(self) -> str:
         output = self.__class__.__name__  + " \n"
-        output += "values =  " + str(self.value) + " \n"
-        output += "mask =  " + str(self.mask) + " \n"
+        output += "output =  " + str(self.output) + " \n"
+        output += "time =  " + str(self.time) + " \n"
         return output
 
 
@@ -73,29 +126,11 @@ if __name__ == "__main__":
     sm = sines.Sines(step_size=2,confidence=.9,sr_down=16e3,resolutions=1,cent_threshold=10,window_size=20)
     features = sm(audio,sr)
 
-    frame = features['frame']
-    t = np.unique(frame)
-    T = t.max()
-    xx = features['frequency']
+    tt = features['frame']
+    xx = features['frequency'][:,None]
     yy = features['amplitude'][:,None]
-    M = yy.shape[-1]
 
-    from itertools import groupby
-    group = groupby(frame)
-    N = max(group, key=lambda k: len(list(k[1])))[0]
-    y = np.zeros((T,N,M))
-    x = np.zeros((T,N))
-    mask = np.zeros((T,N)).astype(bool)
-    for t in range(T):
-        idx = frame==t
-        n = idx.sum()
-        x[t,:n] = xx[idx]
-        y[t,:n] = yy[idx]
-        mask[t,:n] = True
-
-    data = Data(y=y,mask=mask)
-
-    print(data.flatten())
-    print(data.time())
+    data = Data(y=yy,time=tt,x=xx)
+    data.load(y=yy,time=tt,x=xx)
 
     data.plot()

@@ -10,6 +10,8 @@ from scipy.special import logsumexp
 import scipy.linalg as la
 
 from .utils import get_mean,get_median, mvn_logpdf
+from .dataclass import Data
+from .modules.module import Module
 
 class Gibbs(object):
     r'''
@@ -37,6 +39,9 @@ class Gibbs(object):
 
     def __len__(self) -> int:
         return self.step_count
+
+    def __call__(self, params):
+        return self.step(params)
 
     def get_estimates(self,reduction='median',burn_rate=.75,skip_rate=1):
         if reduction == 'median':
@@ -67,7 +72,8 @@ class Gibbs(object):
             self._samples[name].append(value.copy())
         self.step_count += 1
 
-    def fit(self,sampler_fn, params_fn,samples=100):
+    def fit(self,data: 'Data', model: 'Module',samples=10):
         for iter in tqdm(range(samples)):
-            sampler_fn()
-            self.step(params_fn())
+            model(data)
+            self.step(model.named_parameters())
+        self.get_estimates()

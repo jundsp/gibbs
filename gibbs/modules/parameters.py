@@ -8,7 +8,7 @@ from scipy.stats import gamma, wishart, dirichlet
 from scipy.special import logsumexp
 import scipy.linalg as la
 
-from ..utils import mvn_logpdf
+from ..utils import mvn_logpdf, makesymmetric
 from .module import Module
 
 class NormalWishart(Module):
@@ -53,8 +53,8 @@ class NormalWishart(Module):
         self.initialize_parameters()
         
     def define_priors(self):
-        self.nu0 = self.output_dim + .1
-        s = 1.0
+        self.nu0 = self.output_dim + 1
+        s = self.nu0
         self.iW0 = np.eye(self.output_dim)*s
 
         self.a0 = self.nu0 / 2.0
@@ -68,7 +68,7 @@ class NormalWishart(Module):
         A += np.random.normal(0,1e-3,A.shape)
         A /= np.abs(A).sum(-1)[:,None]
         Q = np.eye(self.output_dim)
-        alpha = np.ones((self.input_dim))*1e-2
+        alpha = np.ones((self.input_dim))*1e-1
 
         self._parameters["A"] = A.copy()
         self._parameters["Q"] = Q.copy()
@@ -166,3 +166,55 @@ class NormalWishart(Module):
         self.sample_Q()
         self.sample_alpha()
 
+
+
+class CovarianceMatrix(Module):
+    def __init__(self,dim=1) -> None:
+        super(CovarianceMatrix,self).__init__()
+        self.dim = dim
+        self.nu0 = dim+1.0
+        self.W0 = (np.eye(dim)) / self.nu0
+        self.iW0 = la.inv(self.W0)
+        Lambda = np.atleast_2d(wishart.rvs(df=self.nu0,scale=self.W0))
+        self._parameters['cov'] = la.inv(Lambda)
+
+    def sample_cov(self):
+        nu = self.nu0 + self.N
+
+        x_eps = (self.y - self.x)
+        quad = x_eps.T @ x_eps
+        iW = self.iW0 + quad
+        W = la.inv( makesymmetric(iW))
+
+        Lambda = np.atleast_2d(wishart.rvs(df=nu,scale=W))
+        self._parameters['cov'] =  la.inv(Lambda)
+
+    def _check_input(self,y,x=None,mask=None):
+        if y.ndim != 2:
+            raise ValueError("y must be 2d")
+
+        if x is None:
+            x = np.ones((y.shape[0],self.dim))
+        if x.ndim != 2:
+            raise ValueError("x must be 2d")
+        if y.shape != x.shape:
+            raise ValueError("dim of y and x must match")
+        
+        if mask is None:
+            mask = np.ones(y.shape[0]).astype(bool)
+        if mask.ndim != 1:
+            raise ValueError("mask must be 1d")
+        if y.shape[0] != mask.shape[0]:
+            raise ValueError("mask must match y in dim 1")
+
+        self.dim = y.shape[-1]
+        return x, mask
+
+    def forward(self,y,x=None,mask=None):
+        x,mask = self._check_input(y,x,mask)
+        
+        self.y = y[mask]
+        self.x = x[mask]
+        self.N = self.y.shape[0]
+
+        self.sample_cov()

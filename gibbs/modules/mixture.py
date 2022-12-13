@@ -91,15 +91,6 @@ class InfiniteMixture(Module):
         b = self.N
         self._parameters['eta'] = beta.rvs(a,b)
 
-    def _collapse_groups(self):
-        z_active = np.unique(self._parameters['z'])
-        self.K = len(z_active)
-        temp = self._parameters['z'].copy()
-        for k in range(self.K):
-            idx = self._parameters['z'] == z_active[k]
-            temp[idx] = k
-        self._parameters['z'] = temp.copy()
-
     def forward(self,z):
         z = z.ravel().astype(int)
         self.N = z.shape[0]

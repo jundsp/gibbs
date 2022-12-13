@@ -5,7 +5,7 @@ from scipy.stats import multinomial, wishart
 from scipy.stats import multivariate_normal as mvn
 import scipy.linalg as la
 
-def plot_cov_ellipse(pos,cov, nstd=2, ax=None, **kwargs):
+def plot_cov_ellipse(pos,cov, nstd=2, ax=None, fill=None, **kwargs):
     """
     Plots an `nstd` sigma error ellipse based on the specified covariance
     matrix (`cov`). Additional keyword arguments are passed on to the 
@@ -37,7 +37,7 @@ def plot_cov_ellipse(pos,cov, nstd=2, ax=None, **kwargs):
 
     # Width and height are "full" widths, not radius
     width, height = 2 * nstd * np.sqrt(vals)
-    ellip = Ellipse(xy=pos, width=width, height=height, angle=theta, **kwargs)
+    ellip = Ellipse(xy=pos, width=width, height=height, angle=theta, fill=fill, **kwargs)
 
     ax.add_artist(ellip)
     return ellip
@@ -120,5 +120,16 @@ def get_colors():
     return colors
 
 def get_scatter_kwds():
-    kwds = dict(alpha=.5,s=15,edgecolor='none')
+    kwds = dict(alpha=.5,s=20,edgecolor='none')
     return kwds
+
+def scattercat(y,z,figsize=(4,3)):
+    plt.figure(figsize=figsize)
+    colors = get_colors()
+    plt.scatter(y[:,0],y[:,1],c=colors[z],**get_scatter_kwds())
+    plt.xlabel('$y_1$')
+    plt.ylabel('$y_2$')
+    plt.tight_layout()
+
+def makesymmetric(A):
+    return .5*(A + A.T)

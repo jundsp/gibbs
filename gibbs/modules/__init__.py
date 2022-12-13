@@ -3,3 +3,4 @@ from .lds import *
 from .slds import * 
 from .hmm import *
 from .gmm import *
+from .parameters import *
