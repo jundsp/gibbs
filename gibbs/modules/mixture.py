@@ -23,7 +23,7 @@ class Mixture(Module):
         super().__init__()
         self.components = components
 
-        self._parameters["z"] = np.ones((1,components)).astype(int)
+        self._parameters["z"] = np.ones(1).astype(int)
         self._parameters["pi"] = np.ones(components)/components
         self.alpha0 = np.ones(components) 
 

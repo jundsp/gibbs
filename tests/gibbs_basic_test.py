@@ -1,6 +1,6 @@
 import unittest   # The test framework
 
-from gibbs import Gibbs, SLDS, LDS, GHMM, GMM
+from gibbs import Gibbs, SLDS, LDS, GHMM, GMM, Data
 import numpy as np
 
 def test_sampling(y,model,sampler):
@@ -43,8 +43,9 @@ def testing_function_gmm(y):
 
 class Test_TestBasic(unittest.TestCase):
     def test_gmm(self):
-        y = np.random.normal(0,1,(1,100,2))
-        self.assertEqual(testing_function_gmm(y), 0)
+        y = np.random.normal(0,1,(100,2))
+        data = Data(y)
+        self.assertEqual(testing_function_gmm(data), 0)
 
     def test_ghmm(self):
         y = np.random.normal(0,1,(100,1,2))

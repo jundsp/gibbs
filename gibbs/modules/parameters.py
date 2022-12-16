@@ -93,7 +93,7 @@ class NormalWishart(Module):
         for col in range(self.input_dim):
             a[col] = self.c0 + 1/2*self.output_dim
             b[col] = self.d0 + 1/2*( ((self.A[:,col]) ** 2.0)).sum(0)
-        self._parameters['alpha'] = np.atleast_1d(gamma.rvs(a,scale=1.0/b))
+        self._parameters['alpha'] = np.atleast_1d(gamma.rvs(a=a,scale=1.0/b))
 
     def sample_Q(self):
         if self.full_covariance:
@@ -110,7 +110,7 @@ class NormalWishart(Module):
         a_hat = self.a0 + 1/2 * Nk
         b_hat = self.b0 + 1/2 * quad
 
-        tau = np.atleast_1d(gamma.rvs(a_hat,scale=1/b_hat))
+        tau = np.atleast_1d(gamma.rvs(a=a_hat,scale=1/b_hat))
         return np.diag(1/tau)
 
     def _sample_cov_full(self):

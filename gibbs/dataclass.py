@@ -107,9 +107,11 @@ class Data(object):
         if self.T < 2:
             if self.dim == 2:
                 plt.scatter(self.output[:,0],self.output[:,1],c='k',s=15)
+            elif self.dim == 1:
+                plt.scatter(self.input, self.output,c='k')
         else:
             for d in range(self.dim):
-                plt.scatter(self.time,self.output[:,d],c='k',alpha=.5)
+                plt.scatter(self.time,self.input,c=self.output[:,d],alpha=.5)
 
     def __len__(self) -> int:
         return self.output.shape[0]
