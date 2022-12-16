@@ -146,7 +146,7 @@ plt.xlabel('frequency (normalized)')
 plt.ylabel('log magnitude')
 plt.tight_layout()
 # plt.show()
-# plt.savefig('emm_source_example_M16.pdf')
+# plt.savefig('imgs/emm_source_example_M16.pdf')
 print(cov_hat)
 print(alpha_hat)
 

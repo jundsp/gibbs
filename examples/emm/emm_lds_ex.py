@@ -5,6 +5,7 @@ import os
 import matplotlib.pyplot as plt
 import sines
 import soundfile as sf
+#%%
 
 from sequential.lds import polynomial_covariance_matrix,polynomial_matrix,polynomial_initial_covariance,polynomial_output_matrix
 
@@ -261,43 +262,6 @@ class LDS_Predict(Module):
         y_hat = self.filtered_output(data,z)
         self.theta[0](data.output,y_hat)
 
-class EMM_LDS(Module):
-    r'''
-        Finite Bayesian mixture of Envelopes.
-
-        Author: Julian Neri, 2022
-    '''
-    def __init__(self,components=3,output_dim=1, order=2, env_order=5, states=1):
-        super(EMM_LDS,self).__init__()
-        self.order = order
-        self.components = components
-
-        self.lds = Plate(*[LDS_Predict(output_dim=output_dim, order=order, env_order=env_order, states=states) for i in range(self.components)])
-        self.mix = Mixture(components=self.components)
-
-    def loglikelihood(self,data: 'Data'):
-        loglike = np.zeros((len(data),self.components))
-        z = np.zeros((data.T)).astype(int)
-        for k in range(self.components):
-            loglike[:,k] = self.lds[k].loglikelihood(data,z=z)
-        return loglike
-
-    def logjoint(self,data: 'Data'):
-        logl = self.loglikelihood(data)
-        temp = logl[np.arange(temp.shape[0]),self.mix.z]
-        return temp
-
-    def forward(self,data: 'Data'):
-        if self.mix.z.shape[0] != len(data):
-            self.mix._parameters['z'] = np.random.randint(0,self.components,(len(data)))
-        for i in range(self.components):
-            idx = self.mix.z == i
-            data_temp = Data(y=data.output[idx],x=data.input[idx],time=data.time[idx])
-            data_temp._T = data.T
-            self.lds[i](data_temp)
-        self.mix(self.loglikelihood(data))
-
-
 class PredictorHMM(HMM):
     def __init__(self, states=1, expected_duration=1, parameter_sampling=True):
         super(PredictorHMM,self).__init__(states, expected_duration, parameter_sampling)
@@ -362,6 +326,50 @@ class SLDS_Predict(Module):
         logl = self.logjoint(data)
         self.hmm(logl)
 
+class EMM_LDS(Module):
+    r'''
+        Finite Bayesian mixture of Envelopes.
+
+        Author: Julian Neri, 2022
+    '''
+    def __init__(self,components=3,output_dim=1, order=2, env_order=5, states=1):
+        super(EMM_LDS,self).__init__()
+        self.order = order
+        self.components = components
+
+        self.lds1 = Plate(*[LDS_Predict(output_dim=1, order=order, env_order=env_order, states=states) for i in range(self.components)])
+        self.lds2 = Plate(*[LDS_Predict(output_dim=1, order=order, env_order=env_order, states=states) for i in range(self.components)])
+        self.mix = Mixture(components=self.components)
+
+    def loglikelihood(self,data: 'Data'):
+        loglike = np.zeros((len(data),self.components))
+        z = np.zeros((data.T)).astype(int)
+        data_temp1 = Data(y=data.output[:,0][:,None],x=data.input,time=data.time)
+        data_temp2 = Data(y=data.output[:,1][:,None],x=data.input,time=data.time)
+        for k in range(self.components):
+            
+            loglike[:,k] = self.lds1[k].loglikelihood(data_temp1,z=z) + self.lds2[k].loglikelihood(data_temp2,z=z)
+        return loglike
+
+    def logjoint(self,data: 'Data'):
+        logl = self.loglikelihood(data)
+        temp = logl[np.arange(temp.shape[0]),self.mix.z]
+        return temp
+
+    def forward(self,data: 'Data'):
+        if self.mix.z.shape[0] != len(data):
+            self.mix._parameters['z'] = np.random.randint(0,self.components,(len(data)))
+        for i in range(self.components):
+            idx = self.mix.z == i
+            data_temp = Data(y=data.output[idx,0][:,None],x=data.input[idx],time=data.time[idx])
+            data_temp._T = data.T
+            self.lds1[i](data_temp)
+
+            data_temp = Data(y=data.output[idx,1][:,None],x=data.input[idx],time=data.time[idx])
+            data_temp._T = data.T
+            self.lds2[i](data_temp)
+        self.mix(self.loglikelihood(data))
+
 
 #%%
 # np.random.seed(1)
@@ -369,19 +377,23 @@ filename = "source_example"
 audio,sr = sf.read("/Users/julian/Documents/MATLAB/sounds/{}.wav".format(filename))
 # audio += np.random.normal(0,1e-1,audio.shape)
 
-time = len(audio)//16 / sr + np.arange(30)*.02
+time = np.arange(100)*.02
 # time = None
-features = sines.short_term(audio,sr,window_size=32,time=time,confidence=.9,resolutions=1)
+sm = sines.Sines(confidence=.75,resolutions=1)
+features = sm.short_term(audio,sr,time=time)
 
-y = np.log(np.array(features['amplitude']))[:,None] 
+#%%
+y1 = np.log(np.array(features['amplitude']))[:,None]
+y2 = np.array(features['logfslope'])[:,None]
+y = np.concatenate([y1,y2],-1)
 x = np.array(features['frequency'])[:,None]/sr*2
 t = np.array(features['frame'])
 
-idx = y[:,0]  > -8
+idx = (np.abs(y[:,1])  < 3) & (y[:,0] > -7)
 data = Data(y=y[idx],x=x[idx],time=t[idx])
-
+data.plot()
 #%%
-model = EMM_LDS(components=3,order=2,env_order=5)
+model = EMM_LDS(components=5,order=2,env_order=2,output_dim=1)
 sampler = Gibbs()
 
 #%%
@@ -392,40 +404,52 @@ sampler.get_estimates('median',burn_rate=.9)
 
 z_hat = sampler._estimates['mix.z']
 #%%
+fig,ax = plt.subplots(1,2,figsize=(8,5),subplot_kw=dict(projection="3d",proj_type="ortho"))
+
 colors = get_colors()
 M = 32
 input = np.linspace(0,1,M)
 X, T = np.meshgrid(input,np.arange(data.T))
-y_env = np.zeros((model.components,data.T,M))
-for k in range(model.components):
-    x_hat = sampler._estimates['lds.{}.x'.format(k)]
-    R_hat = sampler._estimates['lds.{}.theta.0.obs.cov'.format(k)]
-    for t in range(data.T):
-        C = model.lds[0].C(0,input)
-        y_env[k,t] = C @ x_hat[t]
+for d in range(2):
+    y_env = np.zeros((model.components,data.T,M))
+    for k in range(model.components):
+        x_hat = sampler._estimates['lds{}.{}.x'.format(d+1,k)]
+        R_hat = sampler._estimates['lds{}.{}.theta.0.obs.cov'.format(d+1,k)]
+        for t in range(data.T):
+            C = model.lds1[0].C(0,input)
+            y_env[k,t] = C @ x_hat[t]
 
 
-fig,ax = plt.subplots(1,figsize=(5,5),subplot_kw=dict(projection="3d",proj_type="ortho"))
-for k in np.unique(z_hat):
-    ax.plot_surface(T, X, y_env[k],alpha=.1,linewidth=0,color=colors[k],antialiased=False)
-    
-ax.scatter(data.time,data.input,data.output,c=colors[z_hat],s=10,linewidth=0,edgecolor='none')
-ax.set_zlim(data.output.min(),data.output.max())
-ax.view_init(90, -90)
-
-# %%
-chain = sampler.get_chain(burn_rate=.5,flatten=False)
-fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
-for ii,p in enumerate(chain):
-    if ('.x' in p) | ('.z' in p):
-        _x = chain[p]
-        _x = np.swapaxes(_x,0,1)
-        _x = _x.reshape(_x.shape[0],-1)
-        ax[ii].plot(_x,'k',alpha=.05)
-    else:
-        _x = chain[p]
-        _x = _x.reshape(_x.shape[0],-1)
-        ax[ii].plot(_x,alpha=.5)
-    ax[ii].set_title(p)
+    for k in np.unique(z_hat):
+        ax[d].plot_surface(T, X, y_env[k],alpha=.1,linewidth=0,color=colors[k],antialiased=True)
+        
+    ax[d].scatter(data.time,data.input,data.output[:,d],c=colors[z_hat],s=10,linewidth=0,edgecolor='none')
+    ax[d].set_zlim(data.output[:,d].min(),data.output[:,d].max())
+    ax[d].set_ylabel('frequency')
+    ax[d].set_xlabel('time frame')
+ax[0].view_init(30, -100)
+ax[1].view_init(30,-105)
+ax[0].set_zlabel('log amplitude')
+ax[1].set_zlabel('log frequency slope')
 plt.tight_layout()
+path_out = "imgs"
+os.makedirs(path_out,exist_ok=True)
+plt.savefig(os.path.join(path_out,"envmix_ex.pdf"))
+#%%
+plot_chain = True
+if plot_chain:
+    chain = sampler.get_chain(burn_rate=.9,flatten=False)
+    fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
+    for ii,p in enumerate(chain):
+        if ('.x' in p) | ('.z' in p):
+            _x = chain[p]
+            _x = np.swapaxes(_x,0,1)
+            _x = _x.reshape(_x.shape[0],-1)
+            ax[ii].plot(_x,'k',alpha=.05)
+        else:
+            _x = chain[p]
+            _x = _x.reshape(_x.shape[0],-1)
+            ax[ii].plot(_x,alpha=.5)
+        ax[ii].set_title(p)
+    plt.tight_layout()
 # %%

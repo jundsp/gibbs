@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as  plt
 import sines
 import soundfile as sf
+from .utils import get_colors
 
 class Data(object):
     def __init__(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None) -> None:
@@ -110,8 +111,9 @@ class Data(object):
             elif self.dim == 1:
                 plt.scatter(self.input, self.output,c='k')
         else:
+            colors = get_colors()
             for d in range(self.dim):
-                plt.scatter(self.time,self.input,c=self.output[:,d],alpha=.5)
+                plt.scatter(self.time,self.output[:,d],alpha=.5,c='k',s=15,edgecolor='none')
 
     def __len__(self) -> int:
         return self.output.shape[0]

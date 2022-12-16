@@ -12,6 +12,7 @@ from ..utils import mvn_logpdf
 from .module import Module
 from .parameters import NormalWishart
 from .plate import TimePlate, Plate
+from ..dataclass import Data
 
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
@@ -25,8 +26,8 @@ class StateSpace(Module):
         self.initialize()
     
     def initialize(self):
-        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
-        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
+        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.01)
+        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=1)
         self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
 
         self.I = np.eye(self.state_dim)
@@ -71,43 +72,13 @@ class StateSpace(Module):
     def P0(self):
         return self.pri.Q
 
-    def _check_input(self,y,x,mask_time=None,mask_data=None):
-        if y.ndim != 3:
-            raise ValueError("y must be 3d")
-        if x.ndim != 2:
-            raise ValueError("x must be 2d")
-        if y.shape[0] != x.shape[0]:
-            raise ValueError("dim 1 of y and x must match")
+    def forward(self,y,x,x_state):
 
-        if mask_time is None:
-            mask = np.ones(y.shape[0]).astype(bool)
-        if mask_time.ndim != 1:
-            raise ValueError("mask_time must be 1d")
-        if y.shape[0] != mask_time.shape[0]:
-            raise ValueError("mask_time must match y in dimensions")
-
-
-        if mask_data is None:
-            mask = np.ones(y.shape[:2]).astype(bool)
-        if mask_data.ndim != 2:
-            raise ValueError("mask_data must be 2d")
-        if y.shape[:2] != mask_data.shape[:2]:
-            raise ValueError("mask_data must match y in 2 dimensions")
-
-        self.output_dim = y.shape[-1]
-        self.state_dim = x.shape[-1]
-        return mask_time, mask_data
-
-    def forward(self,y,x,mask_time=None,mask_data=None):
-        mask_time, mask_data = self._check_input(y,x,mask_time=mask_time,mask_data=mask_data)
-        
-        rz, cz = np.nonzero(mask_data & mask_time[:,None])
-
-        _y = y[rz,cz]
-        _x = x[rz]
-        _x2 = x[1:][mask_time[1:]]
-        _x1 = x[:-1][mask_time[1:]]
-        _x0 = x[[0]][mask_time[[0]]]
+        _y = y
+        _x = x
+        _x2 = x_state[1:]
+        _x1 = x_state[:-1]
+        _x0 = x_state[[0]]
 
         self.obs(y=_y,x=_x)
         self.sys(y=_x2,x=_x1)
@@ -213,20 +184,23 @@ class LDS(Module):
 
         Lam = la.inv(P)
         ell = Lam @ m
-        ell += CR @ y.sum(0)
-        Lam += CRC * y.shape[0]
+        if len(y) > 0:
+            ell += CR @ y.sum(0)
+            Lam += CRC * y.shape[0]
         V = la.inv(Lam)
         mu = V @ ell
         return mu, (V)
 
-    def _forward(self,y,z,mask):
+    def _forward(self,data:'Data',z):
+        self.T = data.T
         mu = np.zeros((self.T,self.state_dim))
         V = np.zeros((self.T,self.state_dim,self.state_dim))
         m = self.m0(z[0]).copy()
         P = self.P0(z[0]).copy()
         for n in range(self.T):
             ''' update'''
-            mu[n], V[n] = self.update(y[n,mask[n]],m,P,z=z[n])
+            y = data.output[data.time==n]
+            mu[n], V[n] = self.update(y,m,P,z=z[n])
             ''' predict '''
             if n < self.T-1:
                 m,P = self.predict(mu[n], V[n], z=z[n+1])
@@ -244,47 +218,34 @@ class LDS(Module):
             _V = (self.I - K_star @ self.A(state)) @ V[t]
             self._parameters['x'][t] = mvn.rvs(_mu,_V)
 
-    def sample_x(self,y,z,mask):
-        mu, V = self._forward(y,z,mask)
+    def sample_x(self,data:'Data',z):
+        mu, V = self._forward(data,z)
         self._backward(mu,V,z)
 
-    def loglikelihood(self,y,z=None,mask=None):
-        z, mask = self._check_input(y=y,z=z,mask=mask)
-        T,N = y.shape[:2]
-        logl = np.zeros((T,N))
-        for t in range(T):
+    def loglikelihood(self,data:'Data',z=None):
+        z = self._check_input(data,z)
+        logl = np.zeros((len(data)))
+        for t in range(data.T):
             state = z[t]
             mu = self.C(state) @ self.x[t]
             Sigma = self.R(state)
-            logl[t,mask[t]] = mvn_logpdf(y[t,mask[t]],mu,Sigma)
+            idx = data.time==t
+            logl[idx] = mvn_logpdf(data.output[idx],mu,Sigma)
         return logl
         
-    def _check_input(self,y,z=None,mask=None):
-        if y.ndim != 3:
-            raise ValueError("input must be 3d")
-        if mask is None:
-            mask = np.ones(y.shape[:2]).astype(bool)
-        if mask.ndim != 2:
-            raise ValueError("mask must be 2d")
-        if y.shape[:2] != mask.shape[:2]:
-            raise ValueError("mask must match y in dimensions")
-        self.T, self.N, self.output_dim = y.shape
-
-        if self.x.shape[0] != self.T:
-            self._parameters['x'] = np.zeros((self.T,self.state_dim))
-
+    def _check_input(self,data:'Data',z=None):
         if z is None:
-            # Same state for all time.
-            z = np.zeros(self.T).astype(int)
-        if z.shape[0] != self.T:
+            z = np.zeros(data.T).astype(int)
+        if z.shape[0] != data.T:
             raise ValueError("1st dim of z and y must be equal.")
-        return z, mask
+        return z
 
-    def forward(self,y,z=None,mask=None):
-        # z is the state of the system at time t. 
-        # mask is which data points are there
-        z,mask = self._check_input(y=y,z=z,mask=mask)
-        self.sample_x(y,z=z,mask=mask)
+    def forward(self,data:'Data',z=None):
+        z = self._check_input(data,z)
+        if self.x.shape[0] != data.T:
+            self._parameters['x'] = np.zeros((data.T,self.state_dim))
+        self.sample_x(data,z=z)
         if self.parameter_sampling == True:
-            self.theta(y=y,x=self.x,labels=z,mask=mask)
+            for i,m in enumerate(self.theta):
+                m(y=data.output,x=self.x[data.time],x_state=self.x)
         

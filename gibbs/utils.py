@@ -120,7 +120,7 @@ def get_colors():
     return colors
 
 def get_scatter_kwds():
-    kwds = dict(alpha=.5,s=20,edgecolor='none')
+    kwds = dict(alpha=.5,s=15,edgecolor='none')
     return kwds
 
 def scattercat(y,z,figsize=(4,3)):

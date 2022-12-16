@@ -19,12 +19,13 @@ class NormalWishart(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,input_dim=1,hyper_sample=True,full_covariance=True):
+    def __init__(self,output_dim=1,input_dim=1,hyper_sample=True,full_covariance=True,sigma_ev=1):
         super(NormalWishart,self).__init__()
         self._dimo = output_dim
         self._dimi = input_dim
         self.hyper_sample = hyper_sample
         self.full_covariance = full_covariance
+        self.sigma_ev = sigma_ev
 
         self.initialize()
 
@@ -53,8 +54,8 @@ class NormalWishart(Module):
         self.initialize_parameters()
         
     def define_priors(self):
-        self.nu0 = self.output_dim + 1
-        s = self.nu0
+        self.nu0 = self.output_dim + .1
+        s = self.nu0*self.sigma_ev**2.0
         self.iW0 = np.eye(self.output_dim)*s
 
         self.a0 = self.nu0 / 2.0
