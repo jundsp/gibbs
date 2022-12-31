@@ -103,19 +103,19 @@ def lds_generate(T=100):
     return y
 
 def slds_generate(T=100):
-    T1 = T//2
+    T1 = T//3
     t = np.arange(T1)
-    y1 = np.exp(1j*2*np.pi*4*t/100)*np.exp(-2*t/100)
-    y2 = np.exp(1j*2*np.pi*1*t/100-1j*np.pi)*np.exp(-t/100)
-    y3 = np.exp(1j*2*np.pi*.25*t/100-1j*np.pi)*np.exp(-t/100)
-    y = np.concatenate([y1,y2],0)
+    y1 = np.exp(1j*2*np.pi*4*t/100)*np.exp(-0*t/100)
+    y2 = np.exp(1j*2*np.pi*1*t/100-1j*np.pi)*np.exp(-0*t/100)
+    y3 = np.exp(1j*2*np.pi*3*t/100-1j*np.pi)*np.exp(-0*t/100)
+    y = np.concatenate([y1,y2,y3],0)
     y = np.stack([y.real,y.imag],-1)
     y += np.random.normal(0,.01,y.shape)
     return y
 
 def get_colors():
     k = np.arange(8)
-    cl = ['Dark2', 'Set1', 'Set2']
+    cl = ['Dark2', 'Set1', 'Set2']*2
     colors = np.concatenate([plt.get_cmap(s)(k) for s in cl],0)
     return colors
 

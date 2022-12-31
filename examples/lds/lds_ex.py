@@ -68,7 +68,7 @@ plt.savefig(os.path.join(path_out,"lds_ex.pdf"))
 # %%
 plt.plot(model.loglikelihood(data))
 # %%
-chain = sampler.get_chain(burn_rate=.5,flatten=False)
+chain = sampler.get_chain(burn_rate=0,flatten=False)
 fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
 for ii,p in enumerate(chain):
     if ('x' in p) | ('.z' in p):

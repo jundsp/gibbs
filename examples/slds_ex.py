@@ -1,8 +1,9 @@
 #%%
-from gibbs import Gibbs, SLDS, slds_generate, tqdm, get_scatter_kwds, get_colors
+from gibbs import Gibbs, SLDS, slds_generate, tqdm, get_scatter_kwds, get_colors, Data
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+from sequential import slds
 
 T = 200
 np.random.seed(123)
@@ -11,40 +12,50 @@ y = y[:,[0]]
 y = y[:,None]
 mask = np.ones(y.shape[:2]).astype(bool)
 T = y.shape[0]
-plt.plot(y[:,0])
+rz,cz = np.nonzero(mask)
+n = np.arange(T)
+time = n[rz]
+y = y[rz,cz]
+
+data = Data(y=y,time=time)
+# data._T = T
+data.plot()
 
 #%%
-np.random.seed(123)
-model = SLDS(output_dim=1,state_dim=8,states=6,hyper_sample=True,expected_duration=100)
+model_vb = slds.SLDS(output_dim=1,state_dim=4,switch_dim=4,expected_duration=10,driven=False)
+
+#%%
+model_vb.train(y,epochs=10)
+#%%
+model_vb.plot()
+#%%
+#* Tighter prior over the covariance. 
+model = SLDS(output_dim=1,state_dim=4,states=4,hyper_sample=False,expected_duration=10,learn_hmm=False,learn_lds=True,full_covariance=False)
 sampler = Gibbs()
-logl = []
-#%%
-iters = 20
-for iter in tqdm(range(iters)):
-    model(y,mask=mask)
-    sampler.step(model.named_parameters())
-    logl.append(model.loglikelihood(y=y,mask=mask).sum())
 
-plt.plot(logl)
-plt.xlabel('sample'),plt.ylabel('log likelihood')
 #%%
-sampler.get_estimates()
+sampler.fit(data=data,model=model,samples=5)
+
+#%%
+chain = sampler.get_chain(burn_rate=.5,flatten=False)
+sampler.get_estimates(burn_rate=.95)
 x_hat = sampler._estimates['lds.x']
 z_hat = sampler._estimates['hmm.z']
-y_hat = x_hat @ sampler._estimates['lds.theta.0.obs.A'].T
-Y_hat = np.zeros((T,model.states)) + np.nan
+x_hat = model.lds.x
+z_hat = model.hmm.z
+y_hat = np.zeros((T,model.output_dim))
 for t in range(z_hat.shape[0]):
     y_hat[t] = x_hat[t] @ sampler._estimates['lds.theta.{}.obs.A'.format(z_hat[t])].T
-    Y_hat[t,z_hat[t]] = y_hat[t]
+
+plt.plot(chain['hmm.z'].T,'k.',alpha=.1,markersize=2)
+
 #%%
 fig,ax = plt.subplots(2,figsize=(5,5))
 
 rz,cz = np.nonzero(mask)
 for k in range(y.shape[-1]):
-    ax[0].scatter(rz,y[rz,cz,k],c='b',**get_scatter_kwds())
-# ax[0].plot(y_chain.transpose(1,0,2)[:,:,0],'g',alpha=4/y_chain.shape[0]);
-ax[0].plot(Y_hat)
-# plt.plot(y_hat);
+    ax[0].scatter(data.time,data.output[:,k],c='b',**get_scatter_kwds())
+ax[0].plot(y_hat)
 ax[0].set_xlim(0,T)
 ax[0].set_ylim(y.min()-.5,y.max()+.5)
 ax[0].set_ylabel('$y_{1,2}$')
@@ -58,10 +69,10 @@ os.makedirs(path_out,exist_ok=True)
 plt.savefig(os.path.join(path_out,"slds_ex.pdf"))
 # %%
 
-chain = sampler.get_chain(burn_rate=0,flatten=False)
+
 fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
 for ii,p in enumerate(chain):
-    if ('.x' in p) | ('.z' in p):
+    if ('.x' in p) :
         _x = chain[p]
         _x = np.swapaxes(_x,0,1)
         _x = _x.reshape(_x.shape[0],-1)
@@ -71,4 +82,8 @@ for ii,p in enumerate(chain):
     ax[ii].plot(_x,'k',alpha=.1)
     ax[ii].set_title(p)
 plt.tight_layout()
+
+# %%
+
+
 # %%

@@ -19,10 +19,12 @@ class NormalWishart(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,input_dim=1,hyper_sample=True,full_covariance=True,sigma_ev=1):
+    def __init__(self,output_dim=1,input_dim=1,hyper_sample=True,transform_sample=True,cov_sample=True,full_covariance=True,sigma_ev=1):
         super(NormalWishart,self).__init__()
         self._dimo = output_dim
         self._dimi = input_dim
+        self.transform_sample = transform_sample
+        self.cov_sample = cov_sample
         self.hyper_sample = hyper_sample
         self.full_covariance = full_covariance
         self.sigma_ev = sigma_ev
@@ -54,7 +56,7 @@ class NormalWishart(Module):
         self.initialize_parameters()
         
     def define_priors(self):
-        self.nu0 = self.output_dim + .1
+        self.nu0 = self.output_dim + .5
         s = self.nu0*self.sigma_ev**2.0
         self.iW0 = np.eye(self.output_dim)*s
 
@@ -63,13 +65,15 @@ class NormalWishart(Module):
 
         self.c0 = .5
         self.d0 = .5
+
+        self.m0 = np.zeros(self.input_dim)
         
     def initialize_parameters(self):
         A = np.eye(self.output_dim,self.input_dim)
         A += np.random.normal(0,1e-3,A.shape)
         A /= np.abs(A).sum(-1)[:,None]
-        Q = np.eye(self.output_dim)
-        alpha = np.ones((self.input_dim))*1e-1
+        Q = np.eye(self.output_dim) * (self.sigma_ev)**2.0
+        alpha = np.ones((self.input_dim))
 
         self._parameters["A"] = A.copy()
         self._parameters["Q"] = Q.copy()
@@ -79,15 +83,16 @@ class NormalWishart(Module):
         tau = 1.0 / np.diag(self.Q)
         Alpha = np.diag(self.alpha)
         for row in range(self.output_dim):
-            ell = tau[row] * (self.y[:,row] @ self.x)
-            Lam = tau[row] *  ( (self.x.T @ self.x) + Alpha )
+            ell = Alpha @ self.m0
+            Lam = tau[row] * Alpha
+            if self.N > 0:
+                ell += tau[row] * (self.y[:,row] @ self.x)
+                Lam += tau[row] *  ( (self.x.T @ self.x) )
             Sigma = la.inv(Lam)
             mu = Sigma @ ell
             self._parameters['A'][row] = mvn.rvs(mu,Sigma)
 
     def sample_alpha(self):
-        if self.hyper_sample is False:
-            return 0
         # The marginal prior over A is then a Cauchy distribution: N(a,|0,1/alpha)Gam(alpha|.5,.5) => Cauchy(a)
         a = np.zeros(self.input_dim)
         b = np.zeros(self.input_dim)
@@ -104,23 +109,29 @@ class NormalWishart(Module):
         self._parameters['Q'] = Q
 
     def _sample_cov_diag(self):
-        Nk = self.N + self.input_dim
-        x_eps = self.y - self.x @ self.A.T
-        quad = np.diag(x_eps.T @ x_eps) + np.diag((self.A) @ np.diag(self.alpha) @ (self.A).T)
+        a_hat = self.a0 + 0
+        b_hat = self.b0 + 0
+        if self.N > 0:
+            Nk = self.N + self.input_dim
+            x_eps = self.y - self.x @ self.A.T
+            quad = np.diag(x_eps.T @ x_eps) + np.diag((self.A) @ np.diag(self.alpha) @ (self.A).T)
 
-        a_hat = self.a0 + 1/2 * Nk
-        b_hat = self.b0 + 1/2 * quad
+            a_hat += 1/2 * Nk
+            b_hat += 1/2 * quad
 
         tau = np.atleast_1d(gamma.rvs(a=a_hat,scale=1/b_hat))
         return np.diag(1/tau)
 
     def _sample_cov_full(self):
-        nu = self.nu0 + self.N
-
-        y_hat = (self.x @ self.A.T)
-        x_eps = (self.y - y_hat)
-        quad = x_eps.T @ x_eps
-        iW = self.iW0 + quad
+        nu = self.nu0 + 0
+        iW = self.iW0 + 0
+        if self.N > 0:
+            nu += self.N
+            y_hat = (self.x @ self.A.T)
+            x_eps = (self.y - y_hat)
+            quad = x_eps.T @ x_eps
+            iW += quad
+            
         iW = .5*(iW + iW.T)
         W = la.inv(iW)
 
@@ -163,18 +174,21 @@ class NormalWishart(Module):
         self.x = x[mask]
         self.N = self.y.shape[0]
 
-        self.sample_A()
-        self.sample_Q()
-        self.sample_alpha()
+        if self.transform_sample == True:
+            self.sample_A()
+        if self.cov_sample == True:
+            self.sample_Q()
+        if self.hyper_sample == True:
+            self.sample_alpha()
 
 
 
 class CovarianceMatrix(Module):
-    def __init__(self,dim=1) -> None:
+    def __init__(self,dim=1,var_ev=1) -> None:
         super(CovarianceMatrix,self).__init__()
         self.dim = dim
-        self.nu0 = dim+1.0
-        self.W0 = (np.eye(dim)) / self.nu0
+        self.nu0 = dim+.5
+        self.W0 = (np.eye(dim)/var_ev) / self.nu0
         self.iW0 = la.inv(self.W0)
         Lambda = np.atleast_2d(wishart.rvs(df=self.nu0,scale=self.W0))
         self._parameters['cov'] = la.inv(Lambda)

@@ -19,9 +19,10 @@ class Mixture(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,components=3):
+    def __init__(self,components=3,learn=True):
         super().__init__()
         self.components = components
+        self.learn = learn
 
         self._parameters["z"] = np.ones(1).astype(int)
         self._parameters["pi"] = np.ones(components)/components
@@ -51,7 +52,8 @@ class Mixture(Module):
     def forward(self,logl):
         self._check_data(logl)
         self.sample_z(logl)
-        self.sample_pi()
+        if self.learn:
+            self.sample_pi()
 
 
 

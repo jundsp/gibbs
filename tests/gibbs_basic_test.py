@@ -14,14 +14,14 @@ def test_sampling(y,model,sampler):
 
 def testing_function_lds(y):
     print("creating lds")
-    model = LDS(output_dim=1,state_dim=2)
+    model = LDS(output_dim=2,state_dim=2)
     sampler = Gibbs()
     print("sampling lds")
     return test_sampling(y,model,sampler)
 
 def testing_function_slds(y):
     print("creating slds")
-    model = SLDS(output_dim=1,state_dim=2,states=4)
+    model = SLDS(output_dim=2,state_dim=2,states=4)
     sampler = Gibbs()
     print("sampling slds")
     return test_sampling(y,model,sampler)
@@ -52,12 +52,14 @@ class Test_TestBasic(unittest.TestCase):
         self.assertEqual(testing_function_ghmm(y), 0)
 
     def test_lds(self):
-        y = np.random.normal(0,1,(100,1,2))
-        self.assertEqual(testing_function_lds(y), 0)
+        y = np.random.normal(0,1,(100,2))
+        data = Data(y)
+        self.assertEqual(testing_function_lds(data), 0)
 
     def test_slds(self):
-        y = np.random.normal(0,1,(100,1,2))
-        self.assertEqual(testing_function_slds(y), 0)
+        y = np.random.normal(0,1,(100,2))
+        data = Data(y)
+        self.assertEqual(testing_function_slds(data), 0)
 
 if __name__ == '__main__':
     unittest.main()

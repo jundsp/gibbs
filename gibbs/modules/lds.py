@@ -26,10 +26,10 @@ class StateSpace(Module):
         self.initialize()
     
     def initialize(self):
-        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.01)
-        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=1)
-        self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=self.hyper_sample,full_covariance=self.full_cov)
-
+        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.01,cov_sample=False)
+        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.01,cov_sample=True,transform_sample=True)
+        self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.1)
+        self.pri._parameters['A'] *= 0
         self.I = np.eye(self.state_dim)
 
     @property
@@ -72,17 +72,10 @@ class StateSpace(Module):
     def P0(self):
         return self.pri.Q
 
-    def forward(self,y,x,x_state):
-
-        _y = y
-        _x = x
-        _x2 = x_state[1:]
-        _x1 = x_state[:-1]
-        _x0 = x_state[[0]]
-
-        self.obs(y=_y,x=_x)
-        self.sys(y=_x2,x=_x1)
-        self.pri(y=_x0)
+    def forward(self,y,x,x2,x1,x0):
+        self.obs(y=y,x=x)
+        self.sys(y=x2,x=x1)
+        self.pri(y=x0)
 
 
 class LDS(Module):
@@ -247,5 +240,34 @@ class LDS(Module):
         self.sample_x(data,z=z)
         if self.parameter_sampling == True:
             for i,m in enumerate(self.theta):
-                m(y=data.output,x=self.x[data.time],x_state=self.x)
+                idx = z == i
+                time_on = np.nonzero(idx)[0]
+                _y, _x = [],[]
+                for t in time_on:
+                    idx = data.time == t
+                    _y.append(data.output[idx])
+                    _x.append(np.stack([self.x[t]]*idx.sum(),0))
+
+                if len(_y) > 0:
+                    _y = np.concatenate(_y,0)
+                    _x = np.concatenate(_x,0)
+                else:
+                    _y = data.output[[]]
+                    _x = self.x[[]]
+
+                t2 = time_on[time_on>0]
+                t1 = t2 - 1
+
+                if len(t2) > 0:
+                    x2 = self.x[t2]
+                    x1 = self.x[t1]
+                else:
+                    x2 = self.x[[]]
+                    x1 = self.x[[]]
+                
+                x0 = self.x[[0]]
+                if 0 not in time_on:
+                    x0 = x0[np.array([False])] 
+
+                m(y=_y,x=_x,x2=x2,x1=x1,x0=x0)
         

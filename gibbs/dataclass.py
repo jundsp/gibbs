@@ -51,6 +51,10 @@ class Data(object):
     def input(self) -> np.ndarray:
         return self._input
 
+    @property
+    def output_dim(self) -> int:
+        return self.output.shape[-1]
+
     @input.setter
     def input(self,val: np.ndarray) -> None:
         if val is None:

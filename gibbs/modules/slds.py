@@ -12,6 +12,7 @@ from ..utils import mvn_logpdf
 from .module import Module
 from .lds import LDS
 from .hmm import HMM
+from ..dataclass import Data
 
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
@@ -23,12 +24,13 @@ class SLDS(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,state_dim=2,states=1,parameter_sampling=True,hyper_sample=True,full_covariance=True,expected_duration=10):
+    def __init__(self,output_dim=1,state_dim=2,states=1,learn_lds=True,learn_hmm=True,hyper_sample=True,full_covariance=True,expected_duration=10):
         super(SLDS,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
         self._dimz = states
-        self.parameter_sampling = parameter_sampling
+        self.learn_lds = learn_lds
+        self.learn_hmm = learn_hmm
         self.hyper_sample = hyper_sample
         self.full_cov = full_covariance
         self.expected_duration = expected_duration
@@ -36,8 +38,8 @@ class SLDS(Module):
         self.initialize()
 
     def initialize(self):
-        self.hmm = HMM(states=self.states,expected_duration=self.expected_duration,parameter_sampling=self.parameter_sampling)
-        self.lds = LDS(output_dim=self.output_dim,state_dim=self.state_dim,states=self.states,full_covariance=self.full_cov,parameter_sampling=self.parameter_sampling,hyper_sample=self.hyper_sample)
+        self.hmm = HMM(states=self.states,expected_duration=self.expected_duration,parameter_sampling=self.learn_hmm)
+        self.lds = LDS(output_dim=self.output_dim,state_dim=self.state_dim,states=self.states,full_covariance=self.full_cov,parameter_sampling=self.learn_lds,hyper_sample=self.hyper_sample)
 
     @property
     def output_dim(self):
@@ -70,49 +72,36 @@ class SLDS(Module):
             self._dimz = value
             self.initialize()
 
-    def logjoint(self,y,mask):
-        logl = np.zeros((self.T, self.states))
-        logly = np.zeros((self.T,self.N))
-        rz, cz = np.nonzero(mask)
-        
+    def logjoint(self,data:'Data'):
+        logl = np.zeros((data.T,self.states))
         for s in range(self.states):
-            mu =  self.lds.x @ self.lds.C(s).T
+            mu = self.lds.x @ self.lds.C(s).T
             Sigma = self.lds.R(s)
-            logly[rz,cz] = mvn_logpdf(y[rz,cz],mu[rz],Sigma)
-            logl[:,s] = logly.sum(1)
+            for t in np.unique(data.time):
+                idx = t == data.time
+                logl[t,s] = mvn.logpdf(data.output[idx],mu[t],Sigma).sum(0)
 
-            m = self.lds.m0(s)[None,:]
+            m = self.lds.m0(s)
             P = self.lds.P0(s)
-            logl[0,s] += mvn_logpdf(self.lds.x[[0]],m,P)
+            logl[0,s] += mvn.logpdf(self.lds.x[0],m,P)
  
             m = self.lds.x[:-1] @ self.lds.A(s).T 
             P = self.lds.Q(s)
-            logl[1:,s] += mvn_logpdf(self.lds.x[1:],m,P)
 
+            logl[1:,s] += mvn_logpdf(self.lds.x[1:],m,P)
         return logl
 
     def loglikelihood(self,y,mask):
         return self.lds.loglikelihood(y,z=self.hmm.z,mask=mask)
 
-    def _check_data(self,y,mask=None):
-        if y.ndim != 3:
-            raise ValueError("input must be 3d")
-        if mask is None:
-            mask = np.ones(y.shape[:2]).astype(bool)
-        if mask.ndim != 2:
-            raise ValueError("mask must be 2d")
-        if y.shape[:2] != mask.shape[:2]:
-            raise ValueError("mask must match y in dimensions")
-        self.T, self.N, self.output_dim = y.shape
+    def forward(self,data:'Data'):
+        if self.hmm.z.shape[0] != data.T:
+            self.hmm._parameters['z'] = np.random.randint(0,self.states,data.T)
+            self.hmm(logl=np.zeros((len(data),self.states)))
+        else:
+            self.hmm(logl=self.logjoint(data))
 
-        if self.hmm.z.shape[0] != self.T:
-            self.hmm._parameters['z'] = np.random.randint(0,self.states,self.T)
-
-        return mask
-
-    def forward(self,y,mask=None):
-        mask = self._check_data(y=y,mask=mask)
-        self.lds(y=y,z=self.hmm.z,mask=mask)
-        self.hmm(logl=self.logjoint(y,mask))
+        self.lds(data,z=self.hmm.z)
+        
 
 
