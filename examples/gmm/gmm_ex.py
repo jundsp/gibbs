@@ -38,11 +38,13 @@ for k in np.unique(z_hat):
 modeli = InfiniteGMM()
 sampleri = Gibbs()
 
+np.random.seed(123)
 #%%
-sampleri.fit(data,modeli,samples=10)
+sampleri.fit(data,modeli,samples=20) 
 
 sampleri.get_estimates(burn_rate=.75)
-z_hat = sampleri._estimates['z'].astype(int)
+#%%
+z_hat = modeli.z
 scattercat(data.output,z_hat)
 for k in np.unique(z_hat):
     idx = z_hat == k
@@ -50,7 +52,7 @@ for k in np.unique(z_hat):
     cov = S * (nu)/(nu-2)
     plot_cov_ellipse(mu,cov,fill=None,color=colors[k])
 
-chain = sampleri.get_chain(burn_rate=.75,flatten=False)
+chain = sampleri.get_chain(burn_rate=0,flatten=False)
 fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
 for ii,p in enumerate(chain):
     _x = chain[p]

@@ -12,6 +12,7 @@ class Data(object):
         self.output = y
         self.time = time
         self.input = x
+        self.mask()
         
     @property
     def output(self) -> np.ndarray:
@@ -66,6 +67,10 @@ class Data(object):
 
         self._input = val
 
+    @property
+    def delta(self):
+        return self._mask
+
     def y(self,t):
         return self.output[self.time == t]
 
@@ -77,7 +82,16 @@ class Data(object):
 
     def mask(self,indices: np.ndarray=None):
         self._mask = np.zeros(self._L).astype(bool)
-        self._mask[indices] = True
+        if indices is None:
+            self._mask[:] = True
+        else:
+            self._mask[indices] = True
+
+    def filter(self,indices: np.ndarray=None,same_T=True):
+        filtered_data = Data(y=self.output[indices],x=self.input[indices],time=self.time[indices])
+        if same_T:
+            filtered_data._T = self.T
+        return filtered_data
 
 
     @property
@@ -117,7 +131,8 @@ class Data(object):
         else:
             colors = get_colors()
             for d in range(self.dim):
-                plt.scatter(self.time,self.output[:,d],alpha=.5,c='k',s=15,edgecolor='none')
+                plt.scatter(self.time[self.delta],self.output[self.delta,d],alpha=.5,c='k',s=15,edgecolor='none')
+            plt.xlim(0,self.T)
 
     def __len__(self) -> int:
         return self.output.shape[0]

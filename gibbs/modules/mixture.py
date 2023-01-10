@@ -69,23 +69,26 @@ class InfiniteMixture(Module):
         super().__init__()
         self.learn = learn
 
+        # Control parameters of the prior
+        self.a = 1
+        self.b = 1
+
         self._parameters["eta"] = np.array([.5])
         self._parameters["alpha"] = np.atleast_1d(alpha)
 
     def sample_alpha(self,z):
         K = len(np.unique(z))
-        a = 1
-        b = 1
-        b_hat = b - np.log(self.eta)
-        y = a + K - 1
+        
+        b_hat = self.b - np.log(self.eta)
+        y = self.a + K - 1
         z = self.N * b_hat
         pi_eta = y/(y+z)
         pi_ = np.array([pi_eta,1-pi_eta]).ravel()
         m = multinomial.rvs(1.0,pi_).argmax()
         if m == 0:
-            a_hat = a + K
+            a_hat = self.a + K
         else:
-            a_hat = a + K - 1
+            a_hat = self.a + K - 1
         self._parameters['alpha'] = gamma.rvs(a=a_hat,scale=1/b_hat)
 
     def sample_eta(self):

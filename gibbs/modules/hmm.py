@@ -90,13 +90,17 @@ class HMM(Module):
             for j in range(self.states):
                 n2 = (self.z[1:] == j)
                 alpha[j] = self.Gamma0[k,j] + np.sum(n1 & n2)
-            self._parameters['Gamma'][k] = dirichlet.rvs(alpha)
+            nz = np.nonzero(alpha)
+            self._parameters['Gamma'][k] = np.zeros(self.states)
+            self._parameters['Gamma'][k,nz] = dirichlet.rvs(alpha[nz])
 
     def sample_pi(self):
         alpha = np.zeros(self.states)
         for k in range(self.states):
             alpha[k] = self.pi0[k] + (self.z[0] == k).sum()
-        self._parameters['pi'] = dirichlet.rvs(alpha).ravel()
+        nz = np.nonzero(alpha)
+        self._parameters['pi'] = np.zeros(self.states)
+        self._parameters['pi'][nz] = dirichlet.rvs(alpha[nz]).ravel()
 
     def _check_data(self,logl):
         if logl.ndim != 2:

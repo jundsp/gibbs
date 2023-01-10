@@ -74,7 +74,7 @@ class InfiniteGMM(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,alpha=1,learn=True,hyper_sample=True,full_covariance=True):
+    def __init__(self,output_dim=1,alpha=1,learn=True,hyper_sample=True,full_covariance=True,collapse_locally:bool=True):
         super().__init__()
         self._dimy = output_dim
         self.hyper_sample = hyper_sample
@@ -82,10 +82,21 @@ class InfiniteGMM(Module):
         self.learn = learn
         self.alpha = alpha
         self.mix = InfiniteMixture(alpha=self.alpha,learn=self.learn)
-        self._parameters['z'] = np.zeros(1) -1
+        self._parameters['z'] = np.zeros(1,dtype=int) -1
         self.K = 0
+        self.collapse_locally = collapse_locally
 
         self.initialize()
+
+    @property
+    def output_dim(self):
+        return self._dimy
+    @output_dim.setter
+    def output_dim(self,value):
+        value = np.maximum(1,value)
+        if value != self._dimy:
+            self._dimy = value
+            self.initialize()
 
     def initialize(self):
         m0 = np.zeros(self.output_dim)
@@ -105,14 +116,14 @@ class InfiniteGMM(Module):
         SN = S0 + S + k0*np.outer(m0,m0) - kN*np.outer(mN,mN)
         return mN,kN,SN,nuN
 
-    def _posterior_predictive(self,y_i,idx):
+    def _posterior_predictive(self,n,idx):
         m0,k0,S0,nu0 = self.theta
         m,k,S,nu = self._posterior(self.y[idx],m0,k0,S0,nu0)
-        return self._predictive(y_i,m,k,S,nu)
+        return self._predictive(self.y[n],m,k,S,nu)
 
-    def _prior_predictive(self,y_i):
+    def _prior_predictive(self,n):
         m0,k0,S0,nu0 = self.theta
-        return self._predictive(y_i,m0,k0,S0,nu0)
+        return self._predictive(self.y[n],m0,k0,S0,nu0)
 
     def _predictive_parameters(self,m,k,S,nu):
         _m = m
@@ -124,37 +135,40 @@ class InfiniteGMM(Module):
         _m, _S, _nu = self._predictive_parameters(m,k,S,nu)
         return mvt.pdf(y,loc=_m,shape=_S,df=_nu)
 
-    def _get_rho_one(self,n,k):
+    def _get_rho_single(self,n,k):
         idx = self.z == k
         idx[n] = False
         Nk = idx.sum() 
 
         rho = 0.0
         if Nk > 0:
-            rho = self._posterior_predictive(self.y[n],idx) * Nk
+            rho = self._posterior_predictive(n,idx) * Nk
         return rho
 
     def _sample_z_single(self,n):
-        K_total = self.K + 1
-        rho = np.zeros(K_total)
+        # Compute rho = p(z|y)
+        rho = np.zeros(self.K + 1)
+        rho[-1] = self._prior_predictive(n) * self.mix.alpha
         for k in range(self.K):
-            rho[k] = self._get_rho_one(n,k)
-
-        rho[-1] = self._prior_predictive(self.y[n]) * self.mix.alpha
-
+            rho[k] = self._get_rho_single(n,k)
         rho /= rho.sum()
+
+        # Sample z
         _z_now = np.random.multinomial(1,rho).argmax()
-        
         if _z_now > (self.K-1):
             self.K += 1
+
         return _z_now
         
     def _sample_z(self):
         tau = np.random.permutation(self.N)
         for n in tau:
             self._parameters['z'][n] = self._sample_z_single(n)
+            if self.collapse_locally:
+                self._collapse_groups()
 
-        self._collapse_groups()
+        if self.collapse_locally == False:
+            self._collapse_groups()
 
     def _collapse_groups(self):
         z_active = np.unique(self.z)
@@ -165,22 +179,12 @@ class InfiniteGMM(Module):
             temp[idx] = k
         self._parameters['z'] = temp.copy()
         
-    @property
-    def output_dim(self):
-        return self._dimy
-    @output_dim.setter
-    def output_dim(self,value):
-        value = np.maximum(1,value)
-        if value != self._dimy:
-            self._dimy = value
-            self.initialize()
-
     def _check_input(self,data: 'Data'):
         self.y = data.output
         self.N, self.output_dim = self.y.shape
 
         if self.z.shape[0] != self.y.shape[0]:
-            self._parameters['z'] = np.zeros(self.N)-1
+            self._parameters['z'] = np.zeros(self.N,dtype=int)-1
             self.K = 0
 
     def forward(self,data: 'Data'):

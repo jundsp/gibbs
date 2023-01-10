@@ -184,8 +184,9 @@ class NormalWishart(Module):
 
 
 class CovarianceMatrix(Module):
-    def __init__(self,dim=1,var_ev=1) -> None:
+    def __init__(self,dim=1,var_ev=1,diagonal=False) -> None:
         super(CovarianceMatrix,self).__init__()
+        self.diagonal = diagonal
         self.dim = dim
         self.nu0 = dim+.5
         self.W0 = (np.eye(dim)/var_ev) / self.nu0
