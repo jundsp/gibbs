@@ -6,6 +6,7 @@ from scipy.special import logsumexp
 from .module import Module 
 from .parameters import NormalWishart
 from .plate import Plate
+from ..dataclass import Data
 
 
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
@@ -18,11 +19,12 @@ class HMM(Module):
 
         Author: Julian Neri, December 2022
     '''
-    def __init__(self,states=1,expected_duration=1,parameter_sampling=True):
+    def __init__(self,states=1,expected_duration=1,parameter_sampling=True,circular=True):
         super().__init__()
         self._dimz = states
         self.expected_duration = expected_duration
         self.parameter_sampling = parameter_sampling
+        self.circular = circular
 
         self._parameters["z"] = np.random.randint(0,self.states,1)
         self.initialize()
@@ -44,15 +46,23 @@ class HMM(Module):
             A_jk = (1-A_kk) / (self.states-1)
         Gamma = np.ones((self.states,self.states)) * A_jk
         np.fill_diagonal(Gamma,A_kk)
+        if self.circular is False:
+            idx = 1-np.triu(np.ones(self.states))
+            Gamma[idx == 1] = 0
+
         Gamma /= Gamma.sum(-1).reshape(-1,1)
         
         pi = np.ones(self.states) 
+        pi /= pi.sum()
 
         self.Gamma0 = Gamma.copy()
         self.pi0 = pi.copy()
 
         self._parameters["Gamma"] = Gamma.copy()
         self._parameters["pi"] = pi.copy()
+
+        self.log_Gamma = np.log(Gamma)
+        self.log_pi = np.log(pi)
 
     def _predict_hmm(self,alpha,transpose=False):
         if transpose:
@@ -69,19 +79,20 @@ class HMM(Module):
             c[t] = logsumexp(alpha[t])
             alpha[t] -= c[t]
             prediction = self._predict_hmm(alpha[t])
-        return np.exp(alpha)
+        return alpha
 
-    def _backward_hmm(self,alpha):
-        beta = alpha[-1] / alpha[-1].sum()
-        self._parameters['z'][-1] = np.random.multinomial(1,beta).argmax()
+    def _backward_hmm(self,log_alpha:np.ndarray):
+        beta = log_alpha[-1] - logsumexp(log_alpha[-1])
+        self._parameters['z'][-1] = np.random.multinomial(1,np.exp(beta)).argmax()
         for t in range(self.T-2,-1,-1):
-            beta = self.Gamma[:,self.z[t+1]] * alpha[t]
-            beta /= beta.sum()
+            beta = self.log_Gamma[:,self.z[t+1]] + log_alpha[t]
+            beta -= logsumexp(beta)
+            beta = np.exp(beta)
             self._parameters['z'][t] = np.random.multinomial(1,beta).argmax()
         
     def sample_z(self,logl):
-        alpha = self._forward_hmm(logl)
-        self._backward_hmm(alpha)
+        log_alpha = self._forward_hmm(logl)
+        self._backward_hmm(log_alpha)
 
     def sample_Gamma(self):
         alpha = np.zeros(self.states)
@@ -94,6 +105,8 @@ class HMM(Module):
             self._parameters['Gamma'][k] = np.zeros(self.states)
             self._parameters['Gamma'][k,nz] = dirichlet.rvs(alpha[nz])
 
+        self.log_Gamma = np.log(self.Gamma)
+
     def sample_pi(self):
         alpha = np.zeros(self.states)
         for k in range(self.states):
@@ -101,6 +114,8 @@ class HMM(Module):
         nz = np.nonzero(alpha)
         self._parameters['pi'] = np.zeros(self.states)
         self._parameters['pi'][nz] = dirichlet.rvs(alpha[nz]).ravel()
+
+        self.log_pi = np.log(self.pi)
 
     def _check_data(self,logl):
         if logl.ndim != 2:
@@ -166,20 +181,7 @@ class GHMM(Module):
             loglike[rz,cz,k] = mvn.logpdf(y[rz,cz],self.theta[k].A.ravel(),self.theta[k].Q)
         return loglike.sum(1)
 
-    def _check_input(self,y,mask=None):
-        if y.ndim != 3:
-            raise ValueError("input must be 3d")
-        if mask is None:
-            mask = np.ones(y.shape[:2]).astype(bool)
-        if mask.ndim != 2:
-            raise ValueError("mask must be 2d")
-        if y.shape[:2] != mask.shape[:2]:
-            raise ValueError("mask must match y in dimensions")
-        self.T, self.N, self.output_dim = y.shape
-        return mask
-
-    def forward(self,y,mask=None):
-        mask = self._check_input(y,mask=mask)
+    def forward(self,data:'Data'):
         self.hmm(self.loglikelihood(y,mask))
         rz,cz = np.nonzero(mask)
         self.theta(y[rz,cz],labels=self.hmm.z[rz])

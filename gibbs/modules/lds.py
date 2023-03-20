@@ -17,17 +17,19 @@ from ..dataclass import Data
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
 class StateSpace(Module):
-    def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True):
+    def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True,sigma_ev_sys=.01, sigma_ev_obs=.01):
         super(StateSpace,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
         self.hyper_sample = hyper_sample
         self.full_cov = full_covariance
+        self.sigma_ev_sys = sigma_ev_sys
+        self.sigma_ev_obs = sigma_ev_obs
         self.initialize()
     
     def initialize(self):
-        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.01,cov_sample=False)
-        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.01,cov_sample=True,transform_sample=True)
+        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=self.sigma_ev_sys,cov_sample=False)
+        self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=self.sigma_ev_obs)
         self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.1)
         self.pri._parameters['A'] *= 0
         self.I = np.eye(self.state_dim)

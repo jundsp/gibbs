@@ -24,7 +24,7 @@ class SLDS(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,state_dim=2,states=1,learn_lds=True,learn_hmm=True,hyper_sample=True,full_covariance=True,expected_duration=10):
+    def __init__(self,output_dim=1,state_dim=2,states=1,learn_lds=True,learn_hmm=True,hyper_sample=True,full_covariance=True,expected_duration=10,circular=True):
         super(SLDS,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
@@ -34,11 +34,12 @@ class SLDS(Module):
         self.hyper_sample = hyper_sample
         self.full_cov = full_covariance
         self.expected_duration = expected_duration
+        self.circular = circular 
 
         self.initialize()
 
     def initialize(self):
-        self.hmm = HMM(states=self.states,expected_duration=self.expected_duration,parameter_sampling=self.learn_hmm)
+        self.hmm = HMM(states=self.states,expected_duration=self.expected_duration,parameter_sampling=self.learn_hmm,circular=self.circular)
         self.lds = LDS(output_dim=self.output_dim,state_dim=self.state_dim,states=self.states,full_covariance=self.full_cov,parameter_sampling=self.learn_lds,hyper_sample=self.hyper_sample)
 
     @property
@@ -97,7 +98,7 @@ class SLDS(Module):
     def forward(self,data:'Data'):
         if self.hmm.z.shape[0] != data.T:
             self.hmm._parameters['z'] = np.random.randint(0,self.states,data.T)
-            self.hmm(logl=np.zeros((len(data),self.states)))
+            self.hmm(logl=np.zeros((data.T,self.states)))
         else:
             self.hmm(logl=self.logjoint(data))
 

@@ -53,7 +53,7 @@ class Gibbs(object):
         for p in chain:
             self._estimates[p] = estim_fun(chain[p])
 
-    def get_chain(self,burn_rate=0,skip_rate=1,flatten=False):
+    def get_chain(self,burn_rate:float=0,skip_rate=1,flatten=False):
         chain = {}        
         skip_rate = int(max(skip_rate,1))
         for p in self._samples:

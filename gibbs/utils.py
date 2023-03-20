@@ -133,3 +133,71 @@ def scattercat(y,z,figsize=(4,3)):
 
 def makesymmetric(A):
     return .5*(A + A.T)
+
+def categorial2multinomial(z:np.ndarray,n_categories:int=None):
+    z = np.atleast_1d(z).astype(int)
+    z_shape = z.shape
+    z = z.ravel()
+    if n_categories is None:
+        n_categories = z.max()+1
+    n_points = z.shape[0]
+    rho = np.zeros((n_points,n_categories))
+    rho[np.arange(n_points),z] = 1
+    rho = rho.reshape(*(z_shape),-1)
+    return rho
+
+def mvnrnd(mu,Sigma,n=1):
+    T = la.cholesky(Sigma)
+    if np.iscomplexobj(Sigma):
+        # eps = (np.random.randn(n,T.shape[0]) + 1j*np.random.randn(n,T.shape[0]))
+        eps = np.random.randn(n,T.shape[0])
+        x = eps @ T + mu[None,:]
+        # eps_r = np.random.randn(n,T.shape[0])
+        # eps_i = np.random.randn(n,T.shape[0])
+
+        # x = eps_r @ T.real + (eps_i @ T.imag) * 1j + mu[None,:]
+    else:
+        eps = np.random.randn(n,T.shape[0])
+        x = eps @ T + mu[None,:]
+    return x
+
+
+if __name__ == "__main__":
+    z = np.random.randint(0,3,(3,4))
+    rho = categorial2multinomial(z)
+    print(rho)
+    
+    import matplotlib.pyplot as plt 
+    nfft = 128
+    w = np.hanning(nfft)
+    F = np.fft.fft(np.eye(nfft))
+    F = F * w[:,None]
+
+    M = nfft//2+1
+    F = F[:,:M]
+    # plt.plot(F[:,nfft//2].imag)
+    
+
+    y = np.cos(2*np.pi*np.arange(nfft)/nfft*10.5) * w * np.exp(-np.linspace(0,6,nfft))*5
+
+    sigma2 = .1**2
+    Lam0 = np.eye(M)*1
+    Lam = (F.conj().T @ F + Lam0)/sigma2
+    ell = (F.conj().T @ y)/sigma2
+
+    Sigma = la.inv(Lam)
+    mu = Sigma @ ell
+
+    x = mvnrnd(mu,Sigma,10).T
+    y_hat = 2*(F @ x).real
+
+    plt.plot(y_hat.real,'r',alpha=.1)
+    plt.plot(y.real,'k')
+
+    # x = mvnrnd(np.zeros(2)+1,np.eye(2),n=1000)
+    # plt.figure()
+    # plt.plot(x[:,0],x[:,1],'.')
+
+    fig,ax = plt.subplots(2)
+    ax[0].plot(x.real,'k',alpha=.5)
+    ax[1].plot(x.imag,'r',alpha=.5)
