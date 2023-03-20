@@ -95,14 +95,14 @@ def hmm_generate(n=100,output_dim=2,n_components=3,expected_duration=10):
         predict = Gamma[z[i]]
     return x, z
 
-def lds_generate(T=100):
+def lds_test_data(T=100):
     t = np.arange(T)
     y = np.exp(1j*2*np.pi*4*t/100)
     y = np.stack([y.real,y.imag],-1)
     y += np.random.normal(0,.05,y.shape)
     return y
 
-def slds_generate(T=100):
+def slds_test_data(T=100):
     T1 = T//3
     t = np.arange(T1)
     y1 = np.exp(1j*2*np.pi*4*t/100)*np.exp(-0*t/100)

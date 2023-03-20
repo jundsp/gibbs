@@ -1,9 +1,8 @@
 #%%
-from gibbs import Gibbs, lds_generate, tqdm, get_scatter_kwds, get_colors, LDS, Data
+from gibbs import Gibbs, lds_test_data, tqdm, get_scatter_kwds, get_colors, LDS, Data
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-
 
 #%%
 T = 300
@@ -15,7 +14,7 @@ x1 = np.sin(2*np.pi*n[:,None] * f[None,:] + theta[None,:]).sum(-1)
 x2 = np.cos(2*np.pi*n[:,None] * f[None,:] + theta[None,:]).sum(-1)
 x = np.stack([x1],-1)
 x /= np.abs(x).max()
-x += np.random.normal(0,.3,x.shape)
+x += np.random.normal(0,.1,x.shape)
 y = x[:,None,:]
 
 mask = np.ones(y.shape[:2]).astype(bool)
@@ -44,7 +43,7 @@ sampler.get_estimates()
 x_hat = sampler._estimates['x']
 y_hat = x_hat @ sampler._estimates['theta.0.obs.A'].T
 
-chain = sampler.get_chain(burn_rate=0)
+chain = sampler.get_chain(burn_rate=.8)
 y_chain = chain['x'] @ chain['theta.0.obs.A'].transpose(0,2,1)
 y_ev = y_chain.mean(0)
 rz,cz = np.nonzero(mask)
@@ -81,4 +80,10 @@ for ii,p in enumerate(chain):
     ax[ii].plot(_x,'k',alpha=.1)
     ax[ii].set_title(p)
 plt.tight_layout()
+
 # %%
+ys,ys_clean,xs = model.generate(T*2)
+plt.plot(ys_clean)
+
+# %%
+

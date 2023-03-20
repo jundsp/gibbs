@@ -1,5 +1,5 @@
 #%%
-from gibbs import Gibbs, SLDS, slds_generate, tqdm, get_scatter_kwds, get_colors, Data
+from gibbs import Gibbs, SLDS, slds_test_data, tqdm, get_scatter_kwds, get_colors, Data
 import numpy as np
 import matplotlib.pyplot as plt
 import os

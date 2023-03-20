@@ -17,7 +17,7 @@ from ..dataclass import Data
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
 class StateSpace(Module):
-    def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True,sigma_ev_sys=.01, sigma_ev_obs=.01):
+    def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True,sigma_ev_sys=.1, sigma_ev_obs=.1):
         super(StateSpace,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
@@ -28,7 +28,7 @@ class StateSpace(Module):
         self.initialize()
     
     def initialize(self):
-        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=self.sigma_ev_sys,cov_sample=False)
+        self.sys = NormalWishart(output_dim=self.state_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=self.sigma_ev_sys,cov_sample=True)
         self.obs = NormalWishart(output_dim=self.output_dim, input_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=self.sigma_ev_obs)
         self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.1)
         self.pri._parameters['A'] *= 0
@@ -100,6 +100,10 @@ class LDS(Module):
         self._parameters["x"] = np.zeros((1,state_dim))
         self.initialize()
 
+    def initialize(self):
+        self.theta = TimePlate(*[StateSpace(output_dim=self.output_dim,state_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov) for i in range(self.states)])
+        self.I = np.eye(self.state_dim)
+
     @property
     def output_dim(self):
         return self._dimy
@@ -144,9 +148,15 @@ class LDS(Module):
     def P0(self,k):
         return self.theta[k].P0
 
-    def initialize(self):
-        self.theta = TimePlate(*[StateSpace(output_dim=self.output_dim,state_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov) for i in range(self.states)])
-        self.I = np.eye(self.state_dim)
+    def generate(self,T=100):
+        x = np.zeros((T,self.state_dim))
+        x[0] = mvn.rvs(self.m0(0),self.P0(0))
+        for t in range(1,T):
+            x[t] = mvn.rvs(self.A(0) @ x[t-1], self.Q(0))
+        y_clean = x @ self.C(0).T
+        y = y_clean + mvn.rvs(np.zeros(self.output_dim),self.R(0),T)
+        return y, y_clean, x
+
         
     def transition(self,x,z:int=0):
         return self.A(z) @ x
