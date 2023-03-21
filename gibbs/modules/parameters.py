@@ -4,7 +4,7 @@ import operator
 import numpy as np
 
 from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet
+from scipy.stats import gamma, wishart, dirichlet, invgamma
 from scipy.special import logsumexp
 import scipy.linalg as la
 
@@ -61,7 +61,7 @@ class NormalWishart(Module):
         self.iW0 = np.eye(self.output_dim)*s
 
         self.a0 = self.nu0 / 2.0
-        self.b0 = 1.0 / (2*s)
+        self.b0 = (2*s)
 
         self.c0 = .5
         self.d0 = .5
@@ -119,8 +119,8 @@ class NormalWishart(Module):
             a_hat += 1/2 * Nk
             b_hat += 1/2 * quad
 
-        tau = np.atleast_1d(gamma.rvs(a=a_hat,scale=1/b_hat))
-        return np.diag(1/tau)
+        sigma2 = np.atleast_1d(invgamma.rvs(a=a_hat,scale=b_hat))
+        return np.diag(sigma2)
 
     def _sample_cov_full(self):
         nu = self.nu0 + 0

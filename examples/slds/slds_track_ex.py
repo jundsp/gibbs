@@ -74,7 +74,7 @@ class Tracker(Module):
 
 #%%
 T = 100
-M = 10
+M = 5
 np.random.seed(123)
 
 fvec = np.zeros(T)
@@ -113,11 +113,15 @@ chain = sampler.get_chain(burn_rate=.5)
 z_hat = sampler._estimates['hmm.z']
 x_hat = sampler._estimates['lds.x']
 m = np.arange(data.T) * M + z_hat
+
+plt.figure(figsize=(3,2))
 plt.scatter(time,y,s=10,linewidth=0,alpha=.5)
 plt.scatter(data.time[m],data.output[m],color='k',s=10,linewidth=0)
 plt.plot(chain['lds.x'][:,:,0].T,'r',alpha=.1)
 plt.plot(x_hat[:,0],'r')
 # plt.ylim(0,1)
+plt.tight_layout()
+plt.savefig("imgs/slds_track_ex.pdf")
 
 # %%
 plt.imshow(chain['hmm.z'])

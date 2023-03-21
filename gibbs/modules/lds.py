@@ -17,7 +17,7 @@ from ..dataclass import Data
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
 class StateSpace(Module):
-    def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True,sigma_ev_sys=.1, sigma_ev_obs=.1):
+    def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True,sigma_ev_sys=.1, sigma_ev_obs=.1, init_method="random"):
         super(StateSpace,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
@@ -25,6 +25,7 @@ class StateSpace(Module):
         self.full_cov = full_covariance
         self.sigma_ev_sys = sigma_ev_sys
         self.sigma_ev_obs = sigma_ev_obs
+        self.init_method = init_method
         self.initialize()
     
     def initialize(self):
@@ -33,6 +34,13 @@ class StateSpace(Module):
         self.pri = NormalWishart(output_dim=self.state_dim, input_dim=1,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,sigma_ev=.1)
         self.pri._parameters['A'] *= 0
         self.I = np.eye(self.state_dim)
+
+        if self.init_method == 'identity':
+            self.sys._parameters['A'] = np.eye(self.state_dim)
+            self.sys._parameters['Q'] = np.eye(self.state_dim)*self.sigma_ev_sys**2
+            self.sys._parameters['C'] = np.eye(self.output_dim,self.state_dim)
+            self.sys._parameters['R'] = np.eye(self.state_dim)*self.sigma_ev_obs**2
+            
 
     @property
     def output_dim(self):
@@ -88,7 +96,7 @@ class LDS(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,state_dim=2,states=1,parameter_sampling=True,hyper_sample=True,full_covariance=True):
+    def __init__(self,output_dim=1,state_dim=2,states=1,parameter_sampling=True,hyper_sample=True,full_covariance=True,init_method='random'):
         super(LDS,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
@@ -96,12 +104,13 @@ class LDS(Module):
         self.parameter_sampling = parameter_sampling
         self.hyper_sample = hyper_sample
         self.full_cov = full_covariance
+        self.init_method = init_method
 
         self._parameters["x"] = np.zeros((1,state_dim))
         self.initialize()
 
     def initialize(self):
-        self.theta = TimePlate(*[StateSpace(output_dim=self.output_dim,state_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov) for i in range(self.states)])
+        self.theta = TimePlate(*[StateSpace(output_dim=self.output_dim,state_dim=self.state_dim,hyper_sample=self.hyper_sample,full_covariance=self.full_cov,init_method=self.init_method) for i in range(self.states)])
         self.I = np.eye(self.state_dim)
 
     @property
@@ -156,7 +165,6 @@ class LDS(Module):
         y_clean = x @ self.C(0).T
         y = y_clean + mvn.rvs(np.zeros(self.output_dim),self.R(0),T)
         return y, y_clean, x
-
         
     def transition(self,x,z:int=0):
         return self.A(z) @ x
@@ -203,7 +211,7 @@ class LDS(Module):
         m = self.m0(z[0]).copy()
         P = self.P0(z[0]).copy()
         for n in range(self.T):
-            ''' update'''
+            ''' update '''
             y = data.output[data.time==n]
             mu[n], V[n] = self.update(y,m,P,z=z[n])
             ''' predict '''
@@ -226,6 +234,40 @@ class LDS(Module):
     def sample_x(self,data:'Data',z):
         mu, V = self._forward(data,z)
         self._backward(mu,V,z)
+
+    def sample_parameters(self,data:'Data',z):
+        for i,m in enumerate(self.theta):
+            idx = z == i
+            time_on = np.nonzero(idx)[0]
+            _y, _x = [],[]
+            for t in time_on:
+                idx = data.time == t
+                if idx.sum() > 0:
+                    _y.append(data.output[idx])
+                    _x.append(np.stack([self.x[t]]*idx.sum(),0))
+
+            if len(_y) > 0:
+                _y = np.concatenate(_y,0)
+                _x = np.concatenate(_x,0)
+            else:
+                _y = data.output[[]]
+                _x = self.x[[]]
+
+            t2 = time_on[time_on>0]
+            t1 = t2 - 1
+
+            if len(t2) > 0:
+                x2 = self.x[t2]
+                x1 = self.x[t1]
+            else:
+                x2 = self.x[[]]
+                x1 = self.x[[]]
+            
+            x0 = self.x[[0]]
+            if 0 not in time_on:
+                x0 = x0[np.array([False])] 
+
+            m(y=_y,x=_x,x2=x2,x1=x1,x0=x0)
 
     def loglikelihood(self,data:'Data',z=None):
         z = self._check_input(data,z)
@@ -251,35 +293,5 @@ class LDS(Module):
             self._parameters['x'] = np.zeros((data.T,self.state_dim))
         self.sample_x(data,z=z)
         if self.parameter_sampling == True:
-            for i,m in enumerate(self.theta):
-                idx = z == i
-                time_on = np.nonzero(idx)[0]
-                _y, _x = [],[]
-                for t in time_on:
-                    idx = data.time == t
-                    _y.append(data.output[idx])
-                    _x.append(np.stack([self.x[t]]*idx.sum(),0))
-
-                if len(_y) > 0:
-                    _y = np.concatenate(_y,0)
-                    _x = np.concatenate(_x,0)
-                else:
-                    _y = data.output[[]]
-                    _x = self.x[[]]
-
-                t2 = time_on[time_on>0]
-                t1 = t2 - 1
-
-                if len(t2) > 0:
-                    x2 = self.x[t2]
-                    x1 = self.x[t1]
-                else:
-                    x2 = self.x[[]]
-                    x1 = self.x[[]]
-                
-                x0 = self.x[[0]]
-                if 0 not in time_on:
-                    x0 = x0[np.array([False])] 
-
-                m(y=_y,x=_x,x2=x2,x1=x1,x0=x0)
+            self.sample_parameters(data,z=z)
         
