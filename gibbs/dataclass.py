@@ -70,6 +70,13 @@ class Data(object):
     @property
     def delta(self):
         return self._mask
+    
+    @property
+    def min(self):
+        return self.output.min()
+    @property
+    def max(self):
+        return self.output.max()
 
     def y(self,t):
         return self.output[self.time == t]

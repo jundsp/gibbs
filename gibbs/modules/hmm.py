@@ -58,9 +58,11 @@ class HMM(Module):
         self.Gamma0 = Gamma.copy()
         self.pi0 = pi.copy()
 
+        self.set_parameters(Gamma,pi)
+    
+    def set_parameters(self,Gamma,pi):
         self._parameters["Gamma"] = Gamma.copy()
         self._parameters["pi"] = pi.copy()
-
         self.log_Gamma = np.log(Gamma)
         self.log_pi = np.log(pi)
 
@@ -174,14 +176,13 @@ class GHMM(Module):
             self._dimz = value
             self.initialize()
 
-    def loglikelihood(self,y,mask):
-        loglike = np.zeros((self.T,self.N,self.states))
-        rz, cz = np.nonzero(mask)
+    def loglikelihood(self,data:'Data'):
+        logl = np.zeros((data.T,self.states))
         for k in range(self.states):
-            loglike[rz,cz,k] = mvn.logpdf(y[rz,cz],self.theta[k].A.ravel(),self.theta[k].Q)
-        return loglike.sum(1)
+            logl[data.time,k] = mvn.logpdf(data.output,self.theta[k].A.ravel(),self.theta[k].Q)
+        return logl
 
     def forward(self,data:'Data'):
-        self.hmm(self.loglikelihood(y,mask))
-        rz,cz = np.nonzero(mask)
-        self.theta(y[rz,cz],labels=self.hmm.z[rz])
+        self.hmm(self.loglikelihood(data))
+        for k in range(self.states):
+            self.theta[k].forward(data.output[self.hmm.z[data.time]==k])

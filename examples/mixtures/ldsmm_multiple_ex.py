@@ -1,5 +1,5 @@
 #%%
-from gibbs import Gibbs, lds_test_data, tqdm, get_scatter_kwds, get_colors, LDS, Data, Mixture, Plate, Module, SLDS, HMM
+from gibbs import Gibbs, lds_test_data, tqdm, get_scatter_kwds, get_colors, LDS, Data, Mixture, Plate, Module, SLDS, HMM, categorical2multinomial
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -7,71 +7,77 @@ from sequential.lds import ode_polynomial_predictor
 from scipy.stats import multivariate_normal as mvn
 from scipy.stats import invgamma, uniform
 import sines
+from itertools import product
 
 plt.style.use('sines-latex')
 
 class MixtureLDS(Module):
     """
-    One of many -  mixture and discrete source state both encoded by the hmm. Assumes one source, and creates one point out of many for each time. Converges quickly because all discrete states are encoded in one variable, rather than having factorized the mixture and the source's temporal discrete state, which mixes very slowly due to strong correlations between the two variables. 
+    many of many -  mixture and discrete source state both encoded by the hmm. Assumes one source and one noise, that creates multiple point out of many for each time. Converges quickly because all discrete states are encoded in one variable, rather than having factorized the mixture and the source's temporal discrete state, which mixes very slowly due to strong correlations between the two variables. 
     """
-    def __init__(self,output_dim,state_dim=2,states=2,learn=False):
+    def __init__(self,output_dim,state_dim=2,states=2,learn=False,N=1):
         super().__init__()
 
+        Comb = product(np.arange(2), repeat=N)
+        Comb = np.array(list(Comb))
+        Comb = np.concatenate([Comb,Comb[[0]]],0)
+        self.Comb = Comb + 0
+        states = Comb.shape[0]
+
         self.states = states
-        N = states - 2
         self.learn = learn
 
         self.lds = LDS(output_dim=1,state_dim=state_dim,parameter_sampling=False,hyper_sample=False,full_covariance=False)
         self.hmm = HMM(states=states,parameter_sampling=False)
 
+        sigma = .1
+        sigma_sys = .05
 
         _C = np.zeros((1,state_dim))
         _C[0,0] = 1.0
-
-        sigma = .05
-        sigma_sys = .01
 
         self.lds.theta[0].sys._parameters['A'] = ode_polynomial_predictor(order=state_dim)
         self.lds.theta[0].sys._parameters['Q'] = np.eye(state_dim)*sigma_sys**2
         self.lds.theta[0].obs._parameters['A'] = _C
         self.lds.theta[0].obs._parameters['Q'] = np.eye(1)*(sigma**2)
         self.lds.theta[0].pri._parameters['A'] = np.zeros(state_dim)[:,None]
-        self.lds.theta[0].pri._parameters['Q'] = np.eye(state_dim)*2
+        self.lds.theta[0].pri._parameters['Q'] = np.eye(state_dim)
 
+        states_on = states - 2
         Gam = np.eye(states)
-        Gam[0,1:-1] = 1e-1 / N 
-        Gam[1:-1,1:-1] = 1 / N
-        Gam[1:-1,-1] = 1e-2 / N
+        Gam[0,1] = 1e-1 / states_on
+        Gam[1:-1,1:-1] = 1 / states_on
+        Gam[1:-1,-1] = 1e-3 / states_on
         pi = np.zeros(states)
         pi[0] = 1
-        pi[1:-1] = 1e-1
+        pi[1:-1] = 1e-1 / states_on
         Gam /= Gam.sum(-1)[:,None]
         pi /= pi.sum()
 
-        self.hmm._parameters['Gamma'] = (Gam)
-        self.hmm._parameters['pi'] = (pi)
-        self.hmm.log_Gamma = np.log(Gam)
-        self.hmm.log_pi = np.log(pi)
+        self.hmm.set_parameters(Gamma=Gam,pi=pi)
+
+        self._parameters['sigma2_noise'] = np.atleast_1d(1**2)
 
     def forward(self,data:'Data'):
         T = data.T
         if self.lds.x.shape[0] != T:   
             self.lds.forward(data)
 
-        noise_logpdf = mvn.logpdf(0,0,10**2)
         y_hat = self.lds.x @ self.lds.C(0).T
         logl = np.zeros((T,self.states)) 
+        
         for t in range(T):
-            N = (data.time == t).sum()
-            logl[t] = noise_logpdf * N
-            logl[t,1:-1] = mvn.logpdf(data.output[data.time == t], y_hat[t],self.lds.R(0)) + noise_logpdf*(N-1)
+            m_on = np.nonzero(data.time==t)[0]
+            N = len(m_on)
+            temp = np.zeros((N,2))
+            temp[:,0] = mvn.logpdf(data.output[m_on]*0, 0, np.eye(1)*self.sigma2_noise)
+            temp[:,1] = mvn.logpdf(data.output[m_on], y_hat[t],self.lds.R(0))
+            for k in range(model.hmm.states):
+                logl[t,k] = temp[np.arange(N),self.Comb[k]].sum()
+
         self.hmm.forward(logl=logl)
 
-        t_on = (self.hmm.z > 0) & (self.hmm.z < self.states-1)
-        m_on = self.hmm.z[t_on]-1 + np.arange(T)[t_on]*(self.states-2)
-        filt = np.zeros(len(data)).astype(bool)
-        filt[m_on] = True
-        _data = data.filter(filt)
+        _data = data.filter(self.Comb[self.hmm.z].ravel() == 1)
         self.lds.forward(data=_data)
 
         if self.learn:
@@ -98,74 +104,81 @@ class MixtureLDS(Module):
             sigma2 = invgamma.rvs(a=a,scale=b)
             self.lds.theta[0].sys._parameters['Q'] = np.eye(self.lds.state_dim)*sigma2
 
+            _data_noise = data.filter(self.Comb[self.hmm.z].ravel() == 0)
+            a = 1 + 1/2*len(_data_noise)
+            b = 1 + 1/2*np.trace(_data_noise.output.T @ _data_noise.output)
+            self._parameters['sigma2_noise'] = invgamma.rvs(a=a,scale=b)
+
 
 #%%
 
-T = 160
-N = 2
+T = 80
+N = 5
 np.random.seed(123)
+
 time = np.arange(T)
 
-f = .1
+f = .13
 
 y = np.cos(time*f)*.6
-y[:20] = np.random.uniform(-1,1,20)
-y[-10:] = np.random.uniform(-1,1,10)
-y[T//2-10:T//2+20] = np.random.uniform(-1,1,30)
+y = np.stack([y]*4,-1)
+y[:15] = np.random.uniform(-1,1,y[:15].shape)
+y[-20:] = np.random.uniform(-1,1,y[-20:].shape)
 
 noise = np.random.uniform(-1,1,(T,N-1))
 if N > 1:
-    y = np.concatenate([y[:,None],noise],-1).ravel()
+    y = np.concatenate([y,noise],-1)
+N = y.shape[-1]
+y = np.sort(y,-1)
+y = y.ravel()
 time = np.stack([time]*N,-1).ravel()
-y += np.random.normal(0,1e-3,y.shape)
+y += np.random.normal(0,1e-2,y.shape)
 
 data = Data(y=y[:,None],time=time)
 data.plot()
 
 #%%
-model = MixtureLDS(output_dim=1,states=2+N,learn=True)
+model = MixtureLDS(output_dim=1,N=N,learn=True)
 sampler = Gibbs()
 
 #%%
-sampler.fit(data=data,model=model,samples=50)
+sampler.fit(data=data,model=model,samples=30)
 
 # %%
-sampler.get_estimates(burn_rate=.75)
-z_hat = sampler._estimates['hmm.z']
+chain = sampler.get_chain(burn_rate=0)
+
+z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
 x_hat = sampler._estimates['lds.x']
 y_hat = x_hat @ model.lds.C(0).T
-chain = sampler.get_chain()
+
 y_chain = chain['lds.x'] @ model.lds.C(0).T
 
 colors = get_colors()
 plt.figure(figsize=(3,2))
-plt.imshow(colors[chain['hmm.z']])
+plt.imshow(chain['hmm.z'])
 plt.xlabel('data point')
 plt.ylabel('sample')
 plt.tight_layout()
-# plt.savefig('imgs/ldsmm_finite_zchain_ex.pdf')
+plt.savefig('imgs/ldsmm_finite_zchain_ex.pdf')
 
 # %%
-t_on = (z_hat > 0) & (z_hat < model.states-1)
-m_on = z_hat[t_on]-1 + np.arange(T)[t_on]*(model.states-2)
-filt = np.zeros(len(data)).astype(int)
-filt[m_on] = 1
+filt = model.Comb[z_hat].ravel()
 
-plt.figure(figsize=(3,2))
+plt.figure(figsize=(4,2.5))
 plt.plot(y_chain[:,:,0].T,color='b',alpha=5/y_chain.shape[0],zorder=1)
 plt.plot(y_hat,color='b')
-plt.scatter(data.time,data.output,color=colors[filt],linewidth=0,s=5)
+plt.scatter(data.time,data.output,color=colors[filt],linewidth=0,s=10,zorder=2)
 plt.xlabel('time')
 plt.ylim(data.output.min()-.2,data.output.max()+.2)
-plt.xlim(0,data.T-1)
+plt.xlim(0,T-1)
 plt.tight_layout()
 plt.savefig('imgs/ldsmm_finite_ex.pdf')
 
 # %%
-# plt.plot(chain['lds.theta.0.obs.Q'][:,0,0],'b')
-# plt.plot(chain['lds.theta.0.sys.Q'][:,0,0],'r')
-# plt.xlim(0)
-# plt.ylim(0)
-# # %%
+plt.plot(chain['lds.theta.0.obs.Q'][:,0,0]**.5,'b')
+plt.plot(chain['lds.theta.0.sys.Q'][:,0,0]**.5,'r')
+plt.plot(chain['sigma2_noise'].ravel()**.5,'g')
+plt.xlim(0)
+plt.ylim(0)
 
 # %%

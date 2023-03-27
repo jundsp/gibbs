@@ -56,12 +56,13 @@ class NormalWishart(Module):
         self.initialize_parameters()
         
     def define_priors(self):
-        self.nu0 = self.output_dim + .5
+        self.nu0 = self.output_dim + 1
         s = self.nu0*self.sigma_ev**2.0
+        v = 1.0 / s
         self.iW0 = np.eye(self.output_dim)*s
 
         self.a0 = self.nu0 / 2.0
-        self.b0 = (2*s)
+        self.b0 = 1/(2.0*v)
 
         self.c0 = .5
         self.d0 = .5
@@ -73,7 +74,7 @@ class NormalWishart(Module):
         A += np.random.normal(0,1e-3,A.shape)
         A /= np.abs(A).sum(-1)[:,None]
         Q = np.eye(self.output_dim) * (self.sigma_ev)**2.0
-        alpha = np.ones((self.input_dim))
+        alpha = np.ones((self.input_dim))*.1
 
         self._parameters["A"] = A.copy()
         self._parameters["Q"] = Q.copy()

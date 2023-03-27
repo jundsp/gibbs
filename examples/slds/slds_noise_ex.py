@@ -1,5 +1,5 @@
 #%%
-from gibbs import Gibbs, SLDS, slds_test_data, tqdm, get_scatter_kwds, get_colors, Data
+from gibbs import Gibbs, SLDS, slds_test_data, tqdm, get_scatter_kwds, get_colors, Data, categorical2multinomial
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -37,7 +37,7 @@ data.plot()
 
 #%%
 
-states = 50
+states = 10
 _C = np.zeros((1,2))
 _C[0,0] = 1
 ratio = 1
@@ -48,7 +48,7 @@ _m0 = np.zeros((2,1))
 _P0 = np.eye(2)
 
 model = SLDS(output_dim=1,state_dim=2,states=states,hyper_sample=False,expected_duration=50,learn_hmm=False,learn_lds=False,full_covariance=False,circular=True)
-freqs = np.linspace(0,.2,model.states)
+freqs = np.linspace(0,.1,model.states)
 for k in range(model.states):
     model.lds.theta[k].sys._parameters['A'] = lds.rotation_matrix(2*np.pi*freqs[k])
     model.lds.theta[k].sys._parameters['Q'] = _Q
@@ -65,6 +65,7 @@ sampler = Gibbs()
 _y = np.zeros((T,model.output_dim))
 _x = np.zeros((T,model.state_dim))
 
+#%%
 for iter in tqdm(range(50)):
     model(data)
     sampler.step(model.named_parameters())
@@ -105,7 +106,7 @@ sampler.get_estimates()
 chain = sampler.get_chain(burn_rate=0,flatten=False)
 sampler.get_estimates(burn_rate=.9)
 x_hat = sampler._estimates['lds.x']
-z_hat = sampler._estimates['hmm.z']
+z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
 # x_hat = model.lds.x
 # z_hat = model.hmm.z
 y_hat = np.zeros((T,model.output_dim))

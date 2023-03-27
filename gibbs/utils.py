@@ -134,7 +134,7 @@ def scattercat(y,z,figsize=(4,3)):
 def makesymmetric(A):
     return .5*(A + A.T)
 
-def categorial2multinomial(z:np.ndarray,n_categories:int=None):
+def categorical2multinomial(z:np.ndarray,n_categories:int=None):
     z = np.atleast_1d(z).astype(int)
     z_shape = z.shape
     z = z.ravel()
@@ -164,7 +164,7 @@ def mvnrnd(mu,Sigma,n=1):
 
 if __name__ == "__main__":
     z = np.random.randint(0,3,(3,4))
-    rho = categorial2multinomial(z)
+    rho = categorical2multinomial(z)
     print(rho)
     
     import matplotlib.pyplot as plt 

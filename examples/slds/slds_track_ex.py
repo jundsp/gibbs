@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from sequential.lds import ode_polynomial_predictor, ode_covariance
-from scipy.stats import invgamma, multivariate_normal
+from scipy.stats import invgamma, multivariate_normal as mvn
 
 plt.style.use('sines-latex')
 
@@ -42,7 +42,7 @@ class Tracker(Module):
 
         y_hat = self.lds.x @ self.lds.C(0).T
         for t in range(T):
-            logl[t] = multivariate_normal.logpdf(data.output[data.time == t], y_hat[t],self.lds.R(0))
+            logl[t] = mvn.logpdf(data.output[data.time == t], y_hat[t],self.lds.R(0))
         self.hmm.forward(logl=logl)
 
         m = _t * self.states + self.hmm.z
