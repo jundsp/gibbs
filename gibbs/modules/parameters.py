@@ -74,7 +74,7 @@ class NormalWishart(Module):
         A += np.random.normal(0,1e-3,A.shape)
         A /= np.abs(A).sum(-1)[:,None]
         Q = np.eye(self.output_dim) * (self.sigma_ev)**2.0
-        alpha = np.ones((self.input_dim))*.1
+        alpha = np.ones((self.input_dim))
 
         self._parameters["A"] = A.copy()
         self._parameters["Q"] = Q.copy()

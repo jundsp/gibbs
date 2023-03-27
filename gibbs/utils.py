@@ -4,6 +4,7 @@ from matplotlib.patches import Ellipse
 from scipy.stats import multinomial, wishart
 from scipy.stats import multivariate_normal as mvn
 import scipy.linalg as la
+from scipy.optimize import linear_sum_assignment
 
 def plot_cov_ellipse(pos,cov, nstd=2, ax=None, fill=None, **kwargs):
     """
@@ -160,6 +161,21 @@ def mvnrnd(mu,Sigma,n=1):
         eps = np.random.randn(n,T.shape[0])
         x = eps @ T + mu[None,:]
     return x
+
+def classification_accuracy(target,estimate,M,K):
+    target = categorical2multinomial(z=target,n_categories=M)
+    estimate = categorical2multinomial(z=estimate,n_categories=K)
+    cost_mtx = np.zeros((M,K))
+    for m in range(M):
+        for k in range(K):
+            cost_mtx[m,k] = np.abs(target[:,m] - estimate[:,k]).sum()
+
+    r,c = linear_sum_assignment(cost_matrix=cost_mtx)
+    estimate = estimate[:,c]
+
+    error = np.any((target - estimate) > 0,-1).sum()
+    accuracy = 1.0 - error / target.shape[0]
+    return accuracy
 
 
 if __name__ == "__main__":
