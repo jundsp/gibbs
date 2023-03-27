@@ -3,21 +3,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import invgamma, norm, dirichlet, multivariate_normal as mvn
 from itertools import product
-
+import os
+from pathlib import Path
 from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, categorical2multinomial, NormalWishart, Plate, classification_accuracy
 
-# plt.style.use('sines-latex')
+plt.style.use('sines-latex')
 
 def test_data(T=100,N=10):
     sigma = np.array([2,.1,.1])
+    sigma[1:] = np.random.uniform(1e-3,.2,2)
     mu = np.zeros(3)
     mu[1] = np.random.uniform(-2,-.5)
     mu[2] = np.random.uniform(.5,2)
 
     y = np.zeros((T,N))
     labels = np.zeros((T,N)).astype(int)
-    labels[20:T//2+10,:N//3] = 1
-    labels[T//2-10:-20,-N//3:] = 2
+    
+
+    starting = np.random.randint(0,T//2,2)
+    ending = starting + np.random.randint(T//4,T-T//4,2)
+
+    labels[starting[0]:ending[0],:N//3] = 1
+    labels[starting[1]:ending[1],N//3:N//3*2] = 2
 
     for i in range(3):
         _y = np.random.normal(mu[i],sigma[i],(T,N))
@@ -152,24 +159,32 @@ class MM_Finite(Module):
         if self.learn:
             self._sample_parameters(data=data)
 
-def evaluate(trials=10,samples=100,T=100,N=10, components=5, states=3, burn_rate=.5):
+def evaluate(path,trials=10,samples=100,T=100,N=10, components=5, states=3, burn_rate=.5,hyper_sample=False):
+    path = Path(path)
+    os.makedirs(path,exist_ok=True)
+    filename = path / "eval_ghmm.txt"
+    with open(filename, 'w') as f:
+        f.write('')
+
     accuracy = np.zeros(trials)
     for trial in range(trials):
         data, labels = test_data(T=T,N=N)
-        model = MM_Finite(components=components,states=states,learn=True,hyper_sample=False)
+        model = MM_Finite(components=components,states=states,learn=True,hyper_sample=hyper_sample)
         sampler = Gibbs()
 
         sampler.fit(data=data,model=model,samples=samples)
 
         chain = sampler.get_chain(burn_rate=burn_rate)
         z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
-        accuracy[trial] = 100*classification_accuracy(labels, z_hat,M=3,K=model.components)
+        accuracy[trial] = classification_accuracy(labels, z_hat,M=3,K=model.components)
+        with open(filename, 'a') as the_file:
+            the_file.write('{}\t{}\t{:4.3f}\n'.format(trial,samples,accuracy[trial]))
     return accuracy
 
 
 # #%%
 # np.random.seed(123)
-# data, labels = test_data(T=100,N=20)
+# data, labels = test_data(T=100,N=10)
 
 # colors = get_colors()
 # plt.figure(figsize=(4,2))
@@ -178,7 +193,7 @@ def evaluate(trials=10,samples=100,T=100,N=10, components=5, states=3, burn_rate
 # plt.title('Target')
 # plt.tight_layout()
 
-# #%%
+# # %%
 # model = MM_Finite(components=5,states=5,learn=True,hyper_sample=False)
 # sampler = Gibbs()
 
@@ -217,9 +232,9 @@ def evaluate(trials=10,samples=100,T=100,N=10, components=5, states=3, burn_rate
 # accuracy = classification_accuracy(labels, z_hat,M=3,K=model.components)
 # print(r"Accuracy = {:3.1f}%".format(100*accuracy))
 
-# %%
+#%%
 np.random.seed(1)
-accuracy = evaluate(trials=10,samples=300)
+accuracy = evaluate(trials=10,samples=100,path="output")
 
 print(accuracy)
 # plt.plot(accuracy)
