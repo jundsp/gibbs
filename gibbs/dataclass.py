@@ -1,7 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as  plt
-import sines
-import soundfile as sf
 from .utils import get_colors
 
 class Data(object):
@@ -152,6 +150,8 @@ class Data(object):
 
 
 if __name__ == "__main__":
+    import sines
+    import soundfile as sf
     audio,sr = sf.read("/Users/julian/Documents/MATLAB/sounds/greasy.wav")
     sm = sines.Sines(step_size=2,confidence=.9,sr_down=16e3,resolutions=1,cent_threshold=10,window_size=20)
     features = sm(audio,sr)
