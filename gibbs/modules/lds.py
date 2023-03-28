@@ -14,8 +14,6 @@ from .parameters import NormalWishart
 from .plate import TimePlate, Plate
 from ..dataclass import Data
 
-from sequential.lds import ode_polynomial_predictor
-
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
 class StateSpace(Module):
@@ -43,7 +41,7 @@ class StateSpace(Module):
             self.obs._parameters['A'] = np.eye(self.output_dim,self.state_dim)
             self.obs._parameters['Q'] = np.eye(self.output_dim)*self.sigma_ev_obs**2
         elif self.init_method == 'predict':
-            self.sys._parameters['A'] = ode_polynomial_predictor(order=self.state_dim)
+            self.sys._parameters['A'] = np.triu(np.ones(self.state_dim))
             self.sys._parameters['Q'] = np.eye(self.state_dim)*self.sigma_ev_sys**2
             self.obs._parameters['A'] = np.eye(self.output_dim,self.state_dim)
             self.obs._parameters['Q'] = np.eye(self.output_dim)*self.sigma_ev_obs**2
