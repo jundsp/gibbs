@@ -9,38 +9,6 @@ from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, cate
 
 plt.style.use('sines-latex')
 
-def test_data(T=100,N=10):
-    sigma = np.array([2,.1,.1])
-    sigma[1:] = np.random.uniform(1e-3,.2,2)
-    mu = np.zeros(3)
-    mu[1] = np.random.uniform(-2,-.5)
-    mu[2] = np.random.uniform(.5,2)
-
-    y = np.zeros((T,N))
-    labels = np.zeros((T,N)).astype(int)
-    
-
-    starting = np.random.randint(0,T//2,2)
-    ending = starting + np.random.randint(T//4,T-T//4,2)
-
-    labels[starting[0]:ending[0],:N//3] = 1
-    labels[starting[1]:ending[1],N//3:N//3*2] = 2
-
-    for i in range(3):
-        _y = np.random.normal(mu[i],sigma[i],(T,N))
-        y[labels==i] = _y[labels==i]
-
-    srt = np.argsort(y,-1)
-    y = np.stack([y[i,srt[i]] for i in range(T)],0)
-    labels = np.stack([labels[i,srt[i]] for i in range(T)],0)
-
-    labels = labels.ravel()
-    y = y.ravel()
-    time = np.arange(T).repeat(N)
-
-    data = Data(y=y[:,None],time=time)  
-    return data, labels
-
 def make_big_hmm(Gam,pi,components):
     lookup = np.array(list(product(np.arange(Gam.shape[0]), repeat=components-1))).astype(int).T
 
@@ -84,6 +52,89 @@ def make_hmm_params(expected_durations):
     pi /= pi.sum()
     return Gam, pi
 
+def test_data(T=100,N=10):
+    sigma = np.array([2,.1,.1])
+    sigma[1:] = np.random.uniform(1e-3,.2,2)
+    mu = np.zeros(3)
+    mu[1] = np.random.uniform(-2,-.5)
+    mu[2] = np.random.uniform(.5,2)
+
+    y = np.zeros((T,N))
+    labels = np.zeros((T,N)).astype(int)
+    
+
+    starting = np.random.randint(0,T//2,2)
+    ending = starting + np.random.randint(T//4,T-T//4,2)
+
+    labels[starting[0]:ending[0],:N//3] = 1
+    labels[starting[1]:ending[1],N//3:N//3*2] = 2
+
+    for i in range(3):
+        _y = np.random.normal(mu[i],sigma[i],(T,N))
+        y[labels==i] = _y[labels==i]
+
+    srt = np.argsort(y,-1)
+    y = np.stack([y[i,srt[i]] for i in range(T)],0)
+    labels = np.stack([labels[i,srt[i]] for i in range(T)],0)
+
+    labels = labels.ravel()
+    y = y.ravel()
+    time = np.arange(T).repeat(N)
+
+    data = Data(y=y[:,None],time=time)  
+    return data, labels
+
+
+def evaluate(path,trials=10,samples=100,burn_rate=.75,T=100,N=10, components=6, states=3, hyper_sample=False, save_plots=True):
+    path = Path(path)
+    os.makedirs(path,exist_ok=True)
+    filename = path / "evaluation.txt"
+    with open(filename, 'w') as f:
+        f.write('')
+
+    accuracy = np.zeros(trials)
+    for trial in range(trials):
+        data, labels = test_data(T=T,N=N)
+        model = MM_Finite(components=components,states=states,learn=True,hyper_sample=hyper_sample)
+        sampler = Gibbs()
+
+        sampler.fit(data=data,model=model,samples=samples)
+
+        chain = sampler.get_chain(burn_rate=burn_rate)
+        z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
+        accuracy[trial] = classification_accuracy(labels, z_hat,M=3,K=model.components)
+        with open(filename, 'a') as the_file:
+            the_file.write('{}\t{}\t{:4.3f}\n'.format(trial,samples,accuracy[trial]))
+
+        if save_plots:
+            hmm_z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
+
+            colors = get_colors()
+            fig, ax = plt.subplots(2,figsize=(4,3),sharex=True,gridspec_kw={'height_ratios': [1, 3]})
+            ax[1].scatter(data.time,data.output[:,0],c=colors[z_hat],linewidths=0,s=5,alpha=.8)
+            ax[1].set_xlim(0,data.T-1)
+            ax[0].imshow(colors[model.lookup[:,hmm_z_hat]])
+            ax[0].set_yticks(np.arange(model.components-1),np.arange(model.components-1)+1)
+            plt.tight_layout()
+            plt.savefig(path/ "eval_data.png")
+
+            fig,ax = plt.subplots(2,figsize=(4,3),sharex=False)
+            ax[0].imshow(chain['mix.z'])
+            ax[1].imshow(chain['hmm.z'])
+            plt.tight_layout()
+            plt.savefig(path/ "eval_chain.png")
+
+            fig,ax = plt.subplots(3,figsize=(4,3),sharex=True)
+            for i in range(model.components):
+                ax[0].plot(chain['mix.pi'][:,i],color=colors[i])
+                ax[1].plot(chain['theta.{}.Q'.format(i)][:,0,0]**.5,color=colors[i])
+                ax[2].plot(chain['theta.{}.A'.format(i)][:,0,0],color=colors[i])
+            ax[-1].set_xlim(0,chain['mix.pi'].shape[0])
+            plt.tight_layout()
+            plt.savefig(path/ "eval_params.png")
+
+    return accuracy
+
 class MM_Finite(Module):
     def __init__(self,output_dim=1,states=3,components=2,learn=True,hyper_sample=True):
         super().__init__()
@@ -99,8 +150,11 @@ class MM_Finite(Module):
         theta = [NormalWishart(hyper_sample=hyper_sample,full_covariance=False,sigma_ev=2,transform_sample=False)]
         theta += [NormalWishart(hyper_sample=hyper_sample,full_covariance=False,sigma_ev=.5,transform_sample=True) for k in range(components-1)] 
         self.theta = Plate(*theta)
-        for theta in self.theta:
+        m0 = np.linspace(-2,2,components-1)
+        for k, theta in enumerate(self.theta):
             theta._parameters['A'][:] = 0
+            if k > 0:
+                theta.m0[:] = m0[k-1]
 
         # Set HMM / Mix
         expected_durations = np.ones(states)*100
@@ -159,56 +213,6 @@ class MM_Finite(Module):
         if self.learn:
             self._sample_parameters(data=data)
 
-def evaluate(path,trials=10,samples=100,burn_rate=.75,T=100,N=10, components=6, states=3, hyper_sample=False, save_plots=True):
-    path = Path(path)
-    os.makedirs(path,exist_ok=True)
-    filename = path / "evaluation.txt"
-    with open(filename, 'w') as f:
-        f.write('')
-
-    accuracy = np.zeros(trials)
-    for trial in range(trials):
-        data, labels = test_data(T=T,N=N)
-        model = MM_Finite(components=components,states=states,learn=True,hyper_sample=hyper_sample)
-        sampler = Gibbs()
-
-        sampler.fit(data=data,model=model,samples=samples)
-
-        chain = sampler.get_chain(burn_rate=burn_rate)
-        z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
-        accuracy[trial] = classification_accuracy(labels, z_hat,M=3,K=model.components)
-        with open(filename, 'a') as the_file:
-            the_file.write('{}\t{}\t{:4.3f}\n'.format(trial,samples,accuracy[trial]))
-
-        if save_plots:
-            hmm_z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
-
-            colors = get_colors()
-            fig, ax = plt.subplots(2,figsize=(4,3),sharex=True,gridspec_kw={'height_ratios': [1, 3]})
-            ax[1].scatter(data.time,data.output[:,0],c=colors[z_hat],linewidths=0,s=5,alpha=.8)
-            ax[1].set_xlim(0,data.T-1)
-            ax[0].imshow(colors[model.lookup[:,hmm_z_hat]])
-            ax[0].set_yticks(np.arange(model.components-1),np.arange(model.components-1)+1)
-            plt.tight_layout()
-            plt.savefig(path/ "eval_data.png")
-
-            fig,ax = plt.subplots(2,figsize=(4,3),sharex=False)
-            ax[0].imshow(chain['mix.z'])
-            ax[1].imshow(chain['hmm.z'])
-            plt.tight_layout()
-            plt.savefig(path/ "eval_chain.png")
-
-            fig,ax = plt.subplots(3,figsize=(4,3),sharex=True)
-            for i in range(model.components):
-                ax[0].plot(chain['mix.pi'][:,i],color=colors[i])
-                ax[1].plot(chain['theta.{}.Q'.format(i)][:,0,0]**.5,color=colors[i])
-                ax[2].plot(chain['theta.{}.A'.format(i)][:,0,0],color=colors[i])
-            ax[-1].set_xlim(0,chain['mix.pi'].shape[0])
-            plt.tight_layout()
-            plt.savefig(path/ "eval_params.png")
-
-    return accuracy
-
 
 #%%
 np.random.seed(123)
@@ -222,15 +226,16 @@ plt.title('Target')
 plt.tight_layout()
 
 # %%
-model = MM_Finite(components=5,states=5,learn=True,hyper_sample=False)
+model = MM_Finite(components=5,states=3,learn=True,hyper_sample=True)
 sampler = Gibbs()
 
 np.random.seed(123)
 #%%
-sampler.fit(data=data,model=model,samples=200)
+#  Converges after 1000 samples. Hyper_sample = True converges faster, because it explores the space (mu, sigma) better than with alpha fixed. They both switch between components. Using a prior mean can prevent that, but not definitely.
+sampler.fit(data=data,model=model,samples=2000)
 
 # %%
-chain = sampler.get_chain(burn_rate=.5)
+chain = sampler.get_chain(burn_rate=0)
 z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
 hmm_z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
 
@@ -248,17 +253,21 @@ ax[0].imshow(chain['mix.z'])
 ax[1].imshow(chain['hmm.z'])
 plt.tight_layout()
 
-fig,ax = plt.subplots(3,figsize=(4,3),sharex=True)
+fig,ax = plt.subplots(2,2,figsize=(4,3),sharex=True)
+ax = ax.ravel()
 for i in range(model.components):
     ax[0].plot(chain['mix.pi'][:,i],color=colors[i])
     ax[1].plot(chain['theta.{}.Q'.format(i)][:,0,0]**.5,color=colors[i])
     ax[2].plot(chain['theta.{}.A'.format(i)][:,0,0],color=colors[i])
-ax[-1].set_xlim(0,chain['mix.pi'].shape[0])
+    ax[3].plot(chain['theta.{}.alpha'.format(i)],color=colors[i])
+ax[-1].set_xlim(0,chain['mix.pi'].shape[0]-1)
 plt.tight_layout()
+plt.savefig('imgs/ghmm_params_alpha_sampled_m0.pdf')
 
 #%%
 accuracy = classification_accuracy(labels, z_hat,M=3,K=model.components)
 print(r"Accuracy = {:3.1f}%".format(100*accuracy))
+
 
 #%%
 # np.random.seed(123)

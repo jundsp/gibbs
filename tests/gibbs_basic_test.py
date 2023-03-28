@@ -28,7 +28,7 @@ def testing_function_slds(y):
 
 def testing_function_ghmm(y):
     print("creating ghmm")
-    model = GHMM(output_dim=1,states=3)
+    model = GHMM(output_dim=2,states=3)
     sampler = Gibbs()
     print("sampling gmm")
     return test_sampling(y,model,sampler)
@@ -48,8 +48,9 @@ class Test_TestBasic(unittest.TestCase):
         self.assertEqual(testing_function_gmm(data), 0)
 
     def test_ghmm(self):
-        y = np.random.normal(0,1,(100,1,2))
-        self.assertEqual(testing_function_ghmm(y), 0)
+        y = np.random.normal(0,1,(100,2))
+        data = Data(y)
+        self.assertEqual(testing_function_ghmm(data), 0)
 
     def test_lds(self):
         y = np.random.normal(0,1,(100,2))
