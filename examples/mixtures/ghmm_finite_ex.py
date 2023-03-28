@@ -6,7 +6,8 @@ from itertools import product
 import os
 from pathlib import Path
 from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, categorical2multinomial, NormalWishart, Plate, classification_accuracy
-plt.style.use("gibbs.mplstyles.latex")
+
+plt.style.use('sines-latex')
 
 def test_data(T=100,N=10):
     sigma = np.array([2,.1,.1])
@@ -209,60 +210,60 @@ def evaluate(path,trials=10,samples=100,burn_rate=.75,T=100,N=10, components=6, 
     return accuracy
 
 
-# #%%
-# np.random.seed(123)
-# data, labels = test_data(T=100,N=10)
-
-# colors = get_colors()
-# plt.figure(figsize=(4,2))
-# plt.scatter(data.time,data.output[:,0],c=colors[labels],linewidths=0,s=5,alpha=.8)
-# plt.xlim(0,data.T-1)
-# plt.title('Target')
-# plt.tight_layout()
-
-# # %%
-# model = MM_Finite(components=5,states=5,learn=True,hyper_sample=False)
-# sampler = Gibbs()
-
-# np.random.seed(123)
-# #%%
-# sampler.fit(data=data,model=model,samples=200)
-
-# # %%
-# chain = sampler.get_chain(burn_rate=.5)
-# z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
-# hmm_z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
-
-# fig, ax = plt.subplots(2,figsize=(4,3),sharex=True,gridspec_kw={'height_ratios': [1, 3]})
-
-
-# ax[1].scatter(data.time,data.output[:,0],c=colors[z_hat],linewidths=0,s=5,alpha=.8)
-# ax[1].set_xlim(0,data.T-1)
-# ax[0].imshow(colors[model.lookup[:,hmm_z_hat]])
-# ax[0].set_yticks(np.arange(model.components-1),np.arange(model.components-1)+1)
-# plt.tight_layout()
-
-# fig,ax = plt.subplots(2,figsize=(4,3),sharex=False)
-# ax[0].imshow(chain['mix.z'])
-# ax[1].imshow(chain['hmm.z'])
-# plt.tight_layout()
-
-# fig,ax = plt.subplots(3,figsize=(4,3),sharex=True)
-# for i in range(model.components):
-#     ax[0].plot(chain['mix.pi'][:,i],color=colors[i])
-#     ax[1].plot(chain['theta.{}.Q'.format(i)][:,0,0]**.5,color=colors[i])
-#     ax[2].plot(chain['theta.{}.A'.format(i)][:,0,0],color=colors[i])
-# ax[-1].set_xlim(0,chain['mix.pi'].shape[0])
-# plt.tight_layout()
-
-# #%%
-# accuracy = classification_accuracy(labels, z_hat,M=3,K=model.components)
-# print(r"Accuracy = {:3.1f}%".format(100*accuracy))
-
 #%%
 np.random.seed(123)
-accuracy = evaluate(trials=10,samples=1000,burn_rate=.5,path="/home/jneri/projects/def-depalle/jneri/output/gibbs/results/ghmm/")
+data, labels = test_data(T=100,N=10)
 
-print(accuracy)
-# plt.plot(accuracy)
+colors = get_colors()
+plt.figure(figsize=(4,2))
+plt.scatter(data.time,data.output[:,0],c=colors[labels],linewidths=0,s=5,alpha=.8)
+plt.xlim(0,data.T-1)
+plt.title('Target')
+plt.tight_layout()
+
+# %%
+model = MM_Finite(components=5,states=5,learn=True,hyper_sample=False)
+sampler = Gibbs()
+
+np.random.seed(123)
+#%%
+sampler.fit(data=data,model=model,samples=200)
+
+# %%
+chain = sampler.get_chain(burn_rate=.5)
+z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
+hmm_z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
+
+fig, ax = plt.subplots(2,figsize=(4,3),sharex=True,gridspec_kw={'height_ratios': [1, 3]})
+
+
+ax[1].scatter(data.time,data.output[:,0],c=colors[z_hat],linewidths=0,s=5,alpha=.8)
+ax[1].set_xlim(0,data.T-1)
+ax[0].imshow(colors[model.lookup[:,hmm_z_hat]])
+ax[0].set_yticks(np.arange(model.components-1),np.arange(model.components-1)+1)
+plt.tight_layout()
+
+fig,ax = plt.subplots(2,figsize=(4,3),sharex=False)
+ax[0].imshow(chain['mix.z'])
+ax[1].imshow(chain['hmm.z'])
+plt.tight_layout()
+
+fig,ax = plt.subplots(3,figsize=(4,3),sharex=True)
+for i in range(model.components):
+    ax[0].plot(chain['mix.pi'][:,i],color=colors[i])
+    ax[1].plot(chain['theta.{}.Q'.format(i)][:,0,0]**.5,color=colors[i])
+    ax[2].plot(chain['theta.{}.A'.format(i)][:,0,0],color=colors[i])
+ax[-1].set_xlim(0,chain['mix.pi'].shape[0])
+plt.tight_layout()
+
+#%%
+accuracy = classification_accuracy(labels, z_hat,M=3,K=model.components)
+print(r"Accuracy = {:3.1f}%".format(100*accuracy))
+
+#%%
+# np.random.seed(123)
+# accuracy = evaluate(trials=10,samples=1000,burn_rate=.5,path="/home/jneri/projects/def-depalle/jneri/output/gibbs/results/ghmm/")
+
+# print(accuracy)
+# # plt.plot(accuracy)
 # %%

@@ -9,5 +9,10 @@ setup(name='gibbs',
     license='GNU',
     packages=find_packages(),
     include_package_data=True,
-    package_data={'': ['data/*.pkl','mplstyles/*.mplstyle']},
+    package_dir={'gibbs': 'gibbs'},
+    package_data={'gibbs': ['mplstyles/*.mplstyle']},
+    install_requires=['matplotlib',
+                      'numpy',
+                      'scipy',
+                      'tqdm']
     )
