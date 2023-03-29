@@ -7,7 +7,14 @@ import os
 from pathlib import Path
 from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, categorical2multinomial, NormalWishart, Plate, classification_accuracy, relabel
 
-plt.style.use('sines-latex')
+import argparse
+
+parser = argparse.ArgumentParser(description='GHMM Finite example')
+parser.add_argument('--output-directory', type=str, default='.', metavar='fname', help='Folder to save output data')
+parser.add_argument('--samples', type=int, default=100, metavar='fname', help='Number of samples')
+args = parser.parse_args()
+# plt.style.use('sines-latex')
+plt.style.use('gibbs.mplstyles.latex')
 
 def make_big_hmm(Gam,pi,components):
     lookup = np.array(list(product(np.arange(Gam.shape[0]), repeat=components-1))).astype(int).T
@@ -224,13 +231,13 @@ plt.title('Target')
 plt.tight_layout()
 
 # %%
-model = MM_Finite(components=5,states=3,learn=True,hyper_sample=False)
+model = MM_Finite(components=5,states=3,learn=True,hyper_sample=True)
 sampler = Gibbs()
 
 np.random.seed(123)
 #%%
 #  Converges after 1000 samples. Hyper_sample = True converges faster, because it explores the space (mu, sigma) better than with alpha fixed. 
-sampler.fit(data=data,model=model,samples=500)
+sampler.fit(data=data,model=model,samples=args.samples)
 
 # %%
 chain = sampler.get_chain(burn_rate=0)
@@ -260,7 +267,10 @@ for i in range(model.components):
     ax[3].plot(chain['theta.{}.alpha'.format(i)],color=colors[i])
 ax[-1].set_xlim(0,chain['mix.pi'].shape[0]-1)
 plt.tight_layout()
-plt.savefig('imgs/ghmm_params_alpha_sampled_m0.pdf')
+
+outpath = args.output_directory + "/results"
+os.makedirs(outpath,exist_ok=True)
+plt.savefig(outpath + '/ghmm_params_alpha_sampled_m0.png')
 
 
 #%%
