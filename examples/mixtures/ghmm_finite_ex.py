@@ -12,6 +12,8 @@ import argparse
 parser = argparse.ArgumentParser(description='GHMM Finite example')
 parser.add_argument('--output-directory', type=str, default='.', metavar='fname', help='Folder to save output data')
 parser.add_argument('--samples', type=int, default=200, metavar='fname', help='Number of samples')
+parser.add_argument('--trials', type=int, default=1, metavar='fname', help='Number of trials')
+parser.add_argument('--verbose', action='store_true', default=False)
 args = parser.parse_args()
 # plt.style.use('sines-latex')
 plt.style.use('gibbs.mplstyles.latex')
@@ -119,6 +121,9 @@ def evaluate(path,trials=10,samples=100,burn_rate=.75,T=100,N=10, components=6, 
             the_file.write('{}\t{}\t{:4.3f}\n'.format(trial,samples,accuracy[trial]))
 
         if save_plots:
+            pi = chain['mix.pi']
+            pi = np.take_along_axis(pi,tau,-1)
+
             hmm_z_hat = categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)
 
             colors = get_colors()
@@ -138,10 +143,10 @@ def evaluate(path,trials=10,samples=100,burn_rate=.75,T=100,N=10, components=6, 
 
             fig,ax = plt.subplots(3,figsize=(4,3),sharex=True)
             for i in range(model.components):
-                ax[0].plot(chain['mix.pi'][:,i],color=colors[i])
+                ax[0].plot(pi[:,i],color=colors[i])
                 ax[1].plot(chain['theta.{}.Q'.format(i)][:,0,0]**.5,color=colors[i])
                 ax[2].plot(chain['theta.{}.A'.format(i)][:,0,0],color=colors[i])
-            ax[-1].set_xlim(0,chain['mix.pi'].shape[0])
+            ax[-1].set_xlim(0,pi.shape[0]-1)
             plt.tight_layout()
             plt.savefig(path/ "eval_params.png")
 
@@ -284,7 +289,7 @@ class MM_Finite(Module):
 
 #%%
 np.random.seed(123)
-accuracy = evaluate(trials=1,samples=500,burn_rate=0,path=args.output_directory + '/results/ghmm/')
+accuracy = evaluate(trials=args.trials,samples=args.samples,burn_rate=.1,hyper_sample=True,path=args.output_directory + '/results/ghmm/')
 
 print(accuracy)
 # plt.plot(accuracy)
