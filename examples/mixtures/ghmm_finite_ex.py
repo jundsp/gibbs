@@ -5,7 +5,7 @@ from scipy.stats import invgamma, norm, dirichlet, multivariate_normal as mvn
 from itertools import product
 import os
 from pathlib import Path
-from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, categorical2multinomial, NormalWishart, Plate, classification_accuracy
+from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, categorical2multinomial, NormalWishart, Plate, classification_accuracy, relabel
 
 plt.style.use('sines-latex')
 
@@ -150,11 +150,8 @@ class MM_Finite(Module):
         theta = [NormalWishart(hyper_sample=hyper_sample,full_covariance=False,sigma_ev=2,transform_sample=False)]
         theta += [NormalWishart(hyper_sample=hyper_sample,full_covariance=False,sigma_ev=.5,transform_sample=True) for k in range(components-1)] 
         self.theta = Plate(*theta)
-        m0 = np.linspace(-2,2,components-1)
         for k, theta in enumerate(self.theta):
             theta._parameters['A'][:] = 0
-            if k > 0:
-                theta.m0[:] = m0[k-1]
 
         # Set HMM / Mix
         expected_durations = np.ones(states)*100
@@ -184,6 +181,7 @@ class MM_Finite(Module):
         rho -= logsumexp(rho,-1).reshape(-1,1)
         rho = np.exp(rho)
         rho /= rho.sum(-1)[:,None]
+        self.mix._parameters['rho'] = rho.copy()
         for n in range(rho.shape[0]):
             self.mix._parameters['z'][n] = np.random.multinomial(1,rho[n]).argmax()
 
@@ -226,13 +224,13 @@ plt.title('Target')
 plt.tight_layout()
 
 # %%
-model = MM_Finite(components=5,states=3,learn=True,hyper_sample=True)
+model = MM_Finite(components=5,states=3,learn=True,hyper_sample=False)
 sampler = Gibbs()
 
 np.random.seed(123)
 #%%
-#  Converges after 1000 samples. Hyper_sample = True converges faster, because it explores the space (mu, sigma) better than with alpha fixed. They both switch between components. Using a prior mean can prevent that, but not definitely.
-sampler.fit(data=data,model=model,samples=2000)
+#  Converges after 1000 samples. Hyper_sample = True converges faster, because it explores the space (mu, sigma) better than with alpha fixed. 
+sampler.fit(data=data,model=model,samples=500)
 
 # %%
 chain = sampler.get_chain(burn_rate=0)
@@ -263,6 +261,7 @@ for i in range(model.components):
 ax[-1].set_xlim(0,chain['mix.pi'].shape[0]-1)
 plt.tight_layout()
 plt.savefig('imgs/ghmm_params_alpha_sampled_m0.pdf')
+
 
 #%%
 accuracy = classification_accuracy(labels, z_hat,M=3,K=model.components)

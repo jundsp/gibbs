@@ -177,6 +177,41 @@ def classification_accuracy(target,estimate,M,K):
     accuracy = 1.0 - error / target.shape[0]
     return accuracy
 
+def relabel(probs,iters=10,verbose=False):
+    T,N,K = probs.shape
+
+    tau = np.stack([np.arange(K)]*T,0)
+    best_cost = np.inf
+
+    q = np.zeros((N,K))
+    for iter in range(iters):
+        for i in range(N):
+            for k in range(K):
+                q[i,k] = probs[np.arange(T),i,tau[:,k]].mean(0) 
+
+        logq = np.log(q+1e-9)
+
+        total_cost = 0
+        for t in range(T):
+            p = probs[t][:,None,:]
+            cost_matrix = np.sum(p*(np.log(p+1e-9) - logq[:,:,None]),0)
+            r,c = linear_sum_assignment(cost_matrix)
+            tau[t] = c
+            total_cost += cost_matrix[r,c].sum()
+
+
+        if verbose:
+            print("Relabelling ==> KLD = {:4.2f}".format(total_cost))
+
+        if total_cost < best_cost:
+            best_cost = total_cost
+        else:
+            if verbose:
+                print("Relabelling ==> Converged.")
+            break
+
+    return tau
+
 
 if __name__ == "__main__":
     z = np.random.randint(0,3,(3,4))

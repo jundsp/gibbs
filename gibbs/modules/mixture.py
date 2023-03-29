@@ -26,6 +26,7 @@ class Mixture(Module):
 
         self._parameters["z"] = np.ones(1).astype(int)
         self._parameters["pi"] = np.ones(components)/components
+        self._parameters['rho'] = np.ones((1,components)) / components
         self.alpha0 = np.ones(components) 
 
     def sample_z(self,logl):
@@ -33,6 +34,7 @@ class Mixture(Module):
         rho -= logsumexp(rho,-1).reshape(-1,1)
         rho = np.exp(rho)
         rho /= rho.sum(-1).reshape(-1,1)
+        self._parameters['rho'] = rho + 0
         for n in range(self.N):
             self._parameters['z'][n] = np.random.multinomial(1,rho[n]).argmax()
 
@@ -48,6 +50,7 @@ class Mixture(Module):
             raise ValueError("input must have same dimensonality as z (N x C)")
         if self.z.shape[0] != logl.shape[0]:
             self._parameters['z'] = np.random.randint(0,self.components,(self.N))
+            self._parameters['rho'] = np.ones((self.N,self.components)) / self.components
 
     def forward(self,logl):
         self._check_data(logl)

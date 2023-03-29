@@ -1,10 +1,11 @@
 #%%
-from gibbs import Gibbs, InfiniteGMM, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat,Data
+from gibbs import Gibbs, InfiniteGMM, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel, categorical2multinomial
 import numpy as np
 import os
 import matplotlib.pyplot as plt
 from variational import VB_GMM
 
+plt.style.use('sines-latex')
 
 np.random.seed(123)
 y = gmm_generate(500,2,5)[0]
@@ -21,18 +22,32 @@ model.plot(**get_scatter_kwds())
 
 #%%
 np.random.seed(123)
-model = GMM(components=8,hyper_sample=True)
+model = GMM(components=8,hyper_sample=False)
 sampler = Gibbs()
 
 #%%
 sampler.fit(data,model,samples=100)
 
-z_hat = sampler._estimates['mix.z'].astype(int)
+#%%
+chain = sampler.get_chain()
+z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
 colors = get_colors()
 scattercat(data.output,z_hat)
 for k in np.unique(z_hat):
     mu,cov = sampler._estimates['theta.{}.A'.format(k)].ravel(),sampler._estimates['theta.{}.Q'.format(k)]
     plot_cov_ellipse(mu,cov,fill=None,color=colors[k])
+
+tau = relabel(probs=chain['mix.rho'],verbose=True,iters=20)
+
+pi = chain['mix.pi'][:,0] + 0
+mus = np.concatenate([chain['theta.{}.A'.format(k)] for k in range(model.components)],-1)
+mu = mus.copy()
+for k in range(model.components):
+    pi[:,k] = chain['mix.pi'][np.arange(pi.shape[0]),0,tau[:,k]]
+    mu[:,:,k] = mus[np.arange(pi.shape[0]),:,tau[:,k]]
+
+plt.figure()
+plt.plot(pi)
 
 #%%
 modeli = InfiniteGMM()
@@ -61,4 +76,5 @@ for ii,p in enumerate(chain):
     ax[ii].set_title(p)
 plt.tight_layout()
 
+# %%
 # %%
