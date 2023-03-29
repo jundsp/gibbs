@@ -29,7 +29,7 @@ sampler = Gibbs()
 sampler.fit(data,model,samples=100)
 
 #%%
-chain = sampler.get_chain()
+chain = sampler.get_chain(burn_rate=.25)
 z_hat = categorical2multinomial(chain['mix.z']).mean(0).argmax(-1)
 colors = get_colors()
 scattercat(data.output,z_hat)
@@ -37,8 +37,10 @@ for k in np.unique(z_hat):
     mu,cov = sampler._estimates['theta.{}.A'.format(k)].ravel(),sampler._estimates['theta.{}.Q'.format(k)]
     plot_cov_ellipse(mu,cov,fill=None,color=colors[k])
 
+
 tau = relabel(probs=chain['mix.rho'],verbose=True,iters=20)
 
+#%%
 pi = chain['mix.pi'][:,0] + 0
 mus = np.concatenate([chain['theta.{}.A'.format(k)] for k in range(model.components)],-1)
 mu = mus.copy()
