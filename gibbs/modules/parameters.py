@@ -51,12 +51,46 @@ class NormalWishart(Module):
             self._dimi = value
             self.initialize()
 
+    @property
+    def sigma_ev(self):
+        return self._sigma_ev
+    @sigma_ev.setter
+    def sigma_ev(self,value):
+        value = np.abs(value)
+        
+        if '_sigma_ev' not in self.__dict__:
+            self._sigma_ev = value
+            self.define_priors()
+
+        if value != self._sigma_ev:
+            self._sigma_ev = value
+            self.define_priors()
+
+    @property
+    def transform_sample(self):
+        return self._transform_sample
+    @transform_sample.setter
+    def transform_sample(self,value:bool):
+        value = bool(value)
+        
+        if '_transform_sample' not in self.__dict__:
+            self._transform_sample = value
+
+        if value != self._transform_sample:
+            self._transform_sample = value
+            if value == False:
+                self._parameters["alpha"][:] = 0
+    
+
     def initialize(self):
         self.define_priors()
         self.initialize_parameters()
         
+        
     def define_priors(self):
-        self.nu0 = self.output_dim + 1
+        self.nu0 = self.output_dim + .5
+        if self.full_covariance is False:
+            self.nu0 = .5
         s = self.nu0*self.sigma_ev**2.0
         v = 1.0 / s
         self.iW0 = np.eye(self.output_dim)*s
@@ -67,14 +101,16 @@ class NormalWishart(Module):
         self.c0 = .5
         self.d0 = .5
 
-        self.m0 = np.zeros(self.input_dim)
-        
     def initialize_parameters(self):
-        A = np.eye(self.output_dim,self.input_dim)
-        A += np.random.normal(0,1e-3,A.shape)
-        A /= np.abs(A).sum(-1)[:,None]
+        A = np.random.normal(0,1e-3,(self.output_dim,self.input_dim))        
         Q = np.eye(self.output_dim) * (self.sigma_ev)**2.0
+
+        # If this is non-zero need to fix the sample call below to include (A-A0).T Alpha (A-A0) etc.
+        self.A0 = np.zeros((self.output_dim,self.input_dim))
+        
         alpha = np.ones((self.input_dim))
+        if self.transform_sample == False:
+            alpha[:] = 0 # No uncertainty about A, not sampling it.
 
         self._parameters["A"] = A.copy()
         self._parameters["Q"] = Q.copy()
@@ -84,7 +120,7 @@ class NormalWishart(Module):
         tau = 1.0 / np.diag(self.Q)
         Alpha = np.diag(self.alpha)
         for row in range(self.output_dim):
-            ell = Alpha @ self.m0
+            ell = Alpha @ self.A0[row]
             Lam = tau[row] * Alpha
             if self.N > 0:
                 ell += tau[row] * (self.y[:,row] @ self.x)
@@ -94,7 +130,6 @@ class NormalWishart(Module):
             self._parameters['A'][row] = mvn.rvs(mu,Sigma)
 
     def sample_alpha(self):
-        # The marginal prior over A is then a Cauchy distribution: N(a,|0,1/alpha)Gam(alpha|.5,.5) => Cauchy(a)
         a = np.zeros(self.input_dim)
         b = np.zeros(self.input_dim)
         for col in range(self.input_dim):
@@ -110,8 +145,8 @@ class NormalWishart(Module):
         self._parameters['Q'] = Q
 
     def _sample_cov_diag(self):
-        a_hat = self.a0 + 0
-        b_hat = self.b0 + 0
+        a_hat = self.a0*np.ones(self.output_dim) + 0
+        b_hat = self.b0*np.ones(self.output_dim) + 0
         if self.N > 0:
             Nk = self.N + self.input_dim
             x_eps = self.y - self.x @ self.A.T
@@ -177,10 +212,11 @@ class NormalWishart(Module):
 
         if self.transform_sample == True:
             self.sample_A()
+            if self.hyper_sample == True:
+                self.sample_alpha()
         if self.cov_sample == True:
             self.sample_Q()
-        if self.hyper_sample == True:
-            self.sample_alpha()
+
 
 
 

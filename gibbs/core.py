@@ -73,7 +73,7 @@ class Gibbs(object):
         self.step_count += 1
 
     def fit(self,data: 'Data', model: 'Module',samples=10):
-        for iter in tqdm(range(samples),miniters=100):
+        for iter in tqdm(range(samples)):
             model(data)
             self.step(model.named_parameters())
         self.get_estimates()

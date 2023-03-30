@@ -13,15 +13,15 @@ data = Data(y=y)
 data.plot()
 
 #%%
-model = GMM(components=10,hyper_sample=False)
+model = GMM(components=10,hyper_sample=True)
 sampler = Gibbs()
 
 #%%
-sampler.fit(data,model,samples=1000)
+sampler.fit(data,model,samples=500)
 
 #%%
-chain = sampler.get_chain(burn_rate=0)
-tau = relabel(probs=chain['mix.rho'],verbose=True,iters=0)
+chain = sampler.get_chain(burn_rate=.1)
+tau = relabel(probs=chain['mix.rho'],verbose=True,iters=5)
 
 pi = chain['mix.pi'][:,0]
 pi = np.take_along_axis(pi,tau,-1)
