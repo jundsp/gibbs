@@ -209,7 +209,7 @@ class LDS(Module):
         mu = V @ ell
         return mu, (V)
 
-    def _forward(self,data:'Data',z):
+    def _forward(self,data:'Data',z:np.ndarray):
         self.T = data.T
         mu = np.zeros((self.T,self.state_dim))
         V = np.zeros((self.T,self.state_dim,self.state_dim))
@@ -224,7 +224,7 @@ class LDS(Module):
                 m,P = self.predict(mu[n], V[n], z=z[n+1])
         return mu, V
 
-    def _backward(self,mu,V,z):
+    def _backward(self,mu,V,z:np.ndarray):
         self._parameters['x'][-1] = mvn.rvs(mu[-1],V[-1])
         for t in range(self.T-2,-1,-1):
             state = z[t+1]
@@ -236,11 +236,11 @@ class LDS(Module):
             _V = (self.I - K_star @ self.A(state)) @ V[t]
             self._parameters['x'][t] = mvn.rvs(_mu,_V)
 
-    def sample_x(self,data:'Data',z):
+    def sample_x(self,data:'Data',z:np.ndarray):
         mu, V = self._forward(data,z)
         self._backward(mu,V,z)
 
-    def sample_parameters(self,data:'Data',z):
+    def sample_parameters(self,data:'Data',z:np.ndarray):
         for i,m in enumerate(self.theta):
             idx = z == i
             time_on = np.nonzero(idx)[0]
@@ -285,14 +285,14 @@ class LDS(Module):
             logl[idx] = mvn_logpdf(data.output[idx],mu,Sigma)
         return logl
         
-    def _check_input(self,data:'Data',z=None):
+    def _check_input(self,data:'Data',z:np.ndarray=None):
         if z is None:
             z = np.zeros(data.T).astype(int)
         if z.shape[0] != data.T:
             raise ValueError("1st dim of z and y must be equal.")
         return z
 
-    def forward(self,data:'Data',z=None):
+    def forward(self,data:'Data',z:np.ndarray=None):
         z = self._check_input(data,z)
         if self.x.shape[0] != data.T:
             self._parameters['x'] = np.zeros((data.T,self.state_dim))

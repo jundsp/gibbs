@@ -17,6 +17,8 @@ class Gibbs(object):
     r'''
     Gibbs sampler base class.
 
+    TODO : requires_sampling: bool, saves memory if False because wont be included in 'named parameters()'. register_parameter("x",np.zeros(3),requires_sampling=True)
+
     Author: Julian Neri, May 2022
     '''
     def __init__(self):

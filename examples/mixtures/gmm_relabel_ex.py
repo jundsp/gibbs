@@ -1,11 +1,10 @@
 #%%
-from gibbs import Gibbs, InfiniteGMM, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel, categorical2multinomial
+from gibbs import Gibbs, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel, categorical2multinomial
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-from variational import VB_GMM
 
-plt.style.use('sines-latex')
+plt.style.use('gibbs.mplstyles.latex')
 
 np.random.seed(123)
 y = gmm_generate(500,2,5)[0]
@@ -26,7 +25,6 @@ tau = relabel(probs=chain['mix.rho'],verbose=True,iters=5)
 pi = chain['mix.pi'][:,0]
 pi = np.take_along_axis(pi,tau,-1)
 
-rho = categorical2multinomial(chain['mix.z'])
 rho = chain['mix.rho']
 rho = np.take_along_axis(rho,tau[:,None,:],-1)
 z_hat = rho.mean(0).argmax(-1)

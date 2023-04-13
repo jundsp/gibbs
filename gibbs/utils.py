@@ -124,9 +124,10 @@ def get_scatter_kwds():
     kwds = dict(alpha=.5,s=15,edgecolor='none')
     return kwds
 
-def scattercat(y,z,figsize=(4,3)):
+def scattercat(y,z,figsize=(4,3),colors=None):
     plt.figure(figsize=figsize)
-    colors = get_colors()
+    if colors is None:
+        colors = get_colors()
     plt.scatter(y[:,0],y[:,1],c=colors[z],**get_scatter_kwds())
     plt.xlabel('$y_1$')
     plt.ylabel('$y_2$')
