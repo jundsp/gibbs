@@ -7,6 +7,7 @@ from .module import Module
 from .parameters import NormalWishart
 from .plate import Plate
 from ..dataclass import Data
+np.seterr(divide='ignore')
 
 
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.

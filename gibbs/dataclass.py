@@ -134,10 +134,11 @@ class Data(object):
             elif self.dim == 1:
                 plt.scatter(self.input, self.output,c='k')
         else:
-            colors = get_colors()
+            fig,ax = plt.subplots(1,self.dim,figsize=(6,2))
+            ax = np.atleast_1d(ax)
             for d in range(self.dim):
-                plt.scatter(self.time[self.delta],self.output[self.delta,d],alpha=.5,c='k',s=15,edgecolor='none')
-            plt.xlim(0,self.T)
+                ax[d].scatter(self.time[self.delta],self.output[self.delta,d],alpha=.5,c='k',s=15,edgecolor='none')
+            plt.tight_layout()
 
     def __len__(self) -> int:
         return self.output.shape[0]
