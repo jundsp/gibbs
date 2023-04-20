@@ -8,7 +8,7 @@ plt.style.use('gibbs.mplstyles.latex')
 
 T = 100
 M = 2
-np.random.seed(123)
+np.random.seed(1)
 fvec = np.zeros(T)
 f = np.random.uniform(0/T,.1)
 for t in range(T):
@@ -47,7 +47,9 @@ _Q = np.eye(2)* (sigma*ratio)**2
 _m0 = np.zeros((2,1))
 _P0 = np.eye(2)
 
-model = gibbs.SLDS(output_dim=1,state_dim=2,states=states,hyper_sample=False,expected_duration=10,learn_hmm=True,learn_lds=False,full_covariance=False,circular=True)
+np.random.seed(1)
+
+model = gibbs.SLDS(output_dim=1,state_dim=2,states=states,hyper_sample=False,expected_duration=10,learn_hmm=False,learn_lds=False,full_covariance=False,circular=True,hybrid=False)
 freqs = np.linspace(0,.1,model.states)
 for k in range(model.states):
     c,s = np.cos(2*np.pi*freqs[k]), np.sin(2*np.pi*freqs[k])
@@ -62,7 +64,7 @@ for k in range(model.states):
 sampler = gibbs.Gibbs()
 
 #%%
-sampler.fit(data=data,model=model,samples=40)
+sampler.fit(data=data,model=model,samples=100)
 
 #%%
 chain = sampler.get_chain(burn_rate=0,flatten=False)

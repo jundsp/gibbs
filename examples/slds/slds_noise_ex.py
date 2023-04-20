@@ -7,6 +7,8 @@ from scipy.stats import invgamma
 
 plt.style.use('gibbs.mplstyles.latex')
 
+np.random.seed(1)
+
 T = 200
 M = 2
 fvec = np.zeros(T)
@@ -44,6 +46,8 @@ _R = np.eye(1) * sigma ** 2
 _Q = np.eye(2)* (sigma*ratio)**2
 _m0 = np.zeros((2,1))
 _P0 = np.eye(2)
+
+np.random.seed(1)
 
 model = gibbs.SLDS(output_dim=1,state_dim=2,states=states,hyper_sample=False,expected_duration=50,learn_hmm=False,learn_lds=False,full_covariance=False,circular=True)
 estimate_dynamics = True
@@ -132,7 +136,7 @@ for iter in gibbs.tqdm(range(50)):
 sampler.get_estimates()
 
 #%%
-chain = sampler.get_chain(burn_rate=.5)
+chain = sampler.get_chain(burn_rate=.5,skip_rate=10)
 sampler.get_estimates(burn_rate=.9)
 x_hat = sampler._estimates['lds.x']
 z_hat = gibbs.categorical2multinomial(chain['hmm.z']).mean(0).argmax(-1)

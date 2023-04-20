@@ -101,7 +101,7 @@ class LDS(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,state_dim=2,states=1,parameter_sampling=True,hyper_sample=True,full_covariance=True,init_method='random'):
+    def __init__(self,output_dim=1,state_dim=2,states=1,parameter_sampling=True,hyper_sample=True,full_covariance=True,init_method='random',hybrid=False):
         super(LDS,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
@@ -110,8 +110,12 @@ class LDS(Module):
         self.hyper_sample = hyper_sample
         self.full_cov = full_covariance
         self.init_method = init_method
+        self.hybrid = hybrid
 
         self._parameters["x"] = np.zeros((1,state_dim))
+        self._mu = np.zeros((1,state_dim))
+        self._V = np.zeros((1,state_dim,state_dim))
+        self._V12 = np.zeros((1,state_dim,state_dim))
         self.initialize()
 
     def initialize(self):
@@ -211,34 +215,40 @@ class LDS(Module):
 
     def _forward(self,data:'Data',z:np.ndarray):
         self.T = data.T
-        mu = np.zeros((self.T,self.state_dim))
-        V = np.zeros((self.T,self.state_dim,self.state_dim))
+        self.mu = np.zeros((self.T,self.state_dim))
+        self.V = np.zeros((self.T,self.state_dim,self.state_dim))
+        self.V12 = self.V[:-1].copy()
+
         m = self.m0(z[0]).copy()
         P = self.P0(z[0]).copy()
         for n in range(self.T):
             ''' update '''
             y = data.output[data.time==n]
-            mu[n], V[n] = self.update(y,m,P,z=z[n])
+            self.mu[n], self.V[n] = self.update(y,m,P,z=z[n])
             ''' predict '''
             if n < self.T-1:
-                m,P = self.predict(mu[n], V[n], z=z[n+1])
-        return mu, V
+                m,P = self.predict(self.mu[n], self.V[n], z=z[n+1])
 
-    def _backward(self,mu,V,z:np.ndarray):
-        self._parameters['x'][-1] = mvn.rvs(mu[-1],V[-1])
+    def _backward(self,z:np.ndarray):
+        self._parameters['x'][-1] = mvn.rvs(self.mu[-1],self.V[-1])
         for t in range(self.T-2,-1,-1):
             state = z[t+1]
-            m = self.A(state) @ mu[t]
-            P = self.A(state) @ V[t] @ self.A(state).T + self.Q(state)
-            K_star = V[t] @ self.A(state).T @ la.inv(P)
+            m = self.A(state) @ self.mu[t]
+            P = self.A(state) @ self.V[t] @ self.A(state).T + self.Q(state)
+            K_star = self.V[t] @ self.A(state).T @ la.inv(P)
 
-            _mu = mu[t] + K_star @ (self.x[t+1] - m)
-            _V = (self.I - K_star @ self.A(state)) @ V[t]
+            _mu = self.mu[t] + K_star @ (self.x[t+1] - m)
+            _V = (self.I - K_star @ self.A(state)) @ self.V[t]
             self._parameters['x'][t] = mvn.rvs(_mu,_V)
 
+            if self.hybrid is True:
+                self.mu[t] = self.mu[t] + K_star @ (self.mu[t+1] - m)
+                self.V[t] = self.V[t] + K_star @ (self.V[t+1] - P) @ K_star.T
+                self.V12[t] = K_star @ self.V[t+1]
+
     def sample_x(self,data:'Data',z:np.ndarray):
-        mu, V = self._forward(data,z)
-        self._backward(mu,V,z)
+        self._forward(data,z)
+        self._backward(z)
 
     def sample_parameters(self,data:'Data',z:np.ndarray):
         for i,m in enumerate(self.theta):

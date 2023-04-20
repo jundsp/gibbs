@@ -5,7 +5,6 @@ import os
 import matplotlib.pyplot as plt
 from variational import VB_GMM
 
-
 plt.style.use('gibbs.mplstyles.latex')
 
 # * Compute times or complexity to add into the thesis
@@ -31,6 +30,11 @@ model_vb.plot(**get_scatter_kwds(),figsize=figsize,colors=colors)
 plt.tight_layout()
 plt.savefig("imgs/gmm_vb_ex.pdf")
 
+plt.figure()
+model_vb.plot_objectives()
+
+plt.savefig("imgs/gmm_vb_optim.pdf")
+
 #%%
 np.random.seed(123)
 model = GMM(components=8,hyper_sample=True)
@@ -47,10 +51,13 @@ tau = relabel(probs=chain['mix.rho'],verbose=True,iters=20)
 rho = chain['mix.rho']
 rho = np.take_along_axis(rho,tau[:,None,:],-1)
 z_hat = rho.mean(0).argmax(-1)
+z_unique = np.unique(z_hat)
+for i, k in enumerate(z_unique):
+    z_hat[z_hat==k] = i
 scattercat(data.output,z_hat,figsize=figsize,colors=colors)
-for k in np.unique(z_hat):
+for i,k in enumerate(z_unique):
     mu,cov = sampler._estimates['theta.{}.A'.format(k)].ravel(),sampler._estimates['theta.{}.Q'.format(k)]
-    plot_cov_ellipse(mu,cov,fill=None,color=colors[k])
+    plot_cov_ellipse(mu,cov,fill=None,color=colors[i])
 plt.savefig("imgs/gmm_gibbs_ex.pdf")
 
 #%%
