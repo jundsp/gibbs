@@ -58,18 +58,21 @@ def mvn_logpdf(y,mu,Sigma):
     
     
 def gmm_generate(n=100,output_dim=2,n_components=3):
-    mu = mvn.rvs(np.zeros(output_dim),np.eye(output_dim)*5,n_components
-    )
+    mu = mvn.rvs(np.zeros(output_dim),np.eye(output_dim)*5,n_components)
     nu = output_dim+.1
     W = np.eye(output_dim)*5.0 / nu
 
     Lambda = wishart.rvs(nu,W,n_components)
+    if output_dim == 1:
+        mu = mu.reshape(-1,1)
+        Lambda = Lambda.reshape(-1,1,1)
     Sigma = [la.inv(Lambda[i]) for i in range(n_components)]
 
     z = np.random.randint(0,n_components,n).astype(int)
     x = np.zeros((n,output_dim))
     for i in range(n):
         x[i] = np.random.multivariate_normal(mu[z[i]],Sigma[z[i]])
+
     return x, z
 
 def hmm_generate(n=100,output_dim=2,n_components=3,expected_duration=10):
@@ -121,7 +124,7 @@ def get_colors():
     return colors
 
 def get_scatter_kwds():
-    kwds = dict(alpha=.5,s=15,edgecolor='none')
+    kwds = dict(alpha=.5,s=15,edgecolor='none',linewidth=0)
     return kwds
 
 def scattercat(y,z,figsize=(4,3),colors=None):

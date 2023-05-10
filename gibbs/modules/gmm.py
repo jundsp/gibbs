@@ -74,11 +74,12 @@ class InfiniteGMM(Module):
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,alpha=1,learn=True,hyper_sample=True,full_covariance=True,collapse_locally:bool=True):
+    def __init__(self,output_dim=1,alpha=1,learn=True,hyper_sample=True,full_covariance=True,collapse_locally:bool=True,sigma_ev:float=1):
         super().__init__()
         self._dimy = output_dim
         self.hyper_sample = hyper_sample
         self.full_covariance = full_covariance
+        self.sigma_ev = sigma_ev
         self.learn = learn
         self.alpha = alpha
         self.mix = InfiniteMixture(alpha=self.alpha,learn=self.learn)
@@ -100,9 +101,11 @@ class InfiniteGMM(Module):
 
     def initialize(self):
         m0 = np.zeros(self.output_dim)
-        nu0 = self.output_dim+1
+        nu0 = self.output_dim + 0.5
         k0 = .01
-        S0 = np.eye(self.output_dim)*nu0*.1
+
+        s = nu0*self.sigma_ev**2.0
+        S0 = np.eye(self.output_dim)*s
         self.theta = tuple([m0,k0,S0,nu0])
 
     def _posterior(self,y,m0,k0,S0,nu0):
@@ -165,7 +168,8 @@ class InfiniteGMM(Module):
         for n in tau:
             self._parameters['z'][n] = self._sample_z_single(n)
             if self.collapse_locally:
-                self._collapse_groups()
+                if np.all(self.z >= 0):
+                    self._collapse_groups()
 
         if self.collapse_locally == False:
             self._collapse_groups()
@@ -191,3 +195,102 @@ class InfiniteGMM(Module):
         self._check_input(data)
         self._sample_z()
         self.mix(self.z)
+
+
+
+
+class InfiniteGMM_Hyper(InfiniteGMM):
+    r'''
+        Infinite Bayesian mixture of Gaussians, with different kinds of hyperparameters (for outliers).
+
+        Gibbs sampling. 
+
+        Author: Julian Neri, 2023
+    '''
+    def __init__(self, output_dim=1, alpha=1, learn=True, hyper_sample=True, full_covariance=True, collapse_locally: bool = True, sigma_ev: float = 1, sigma_outlier_ev:float = 10):
+        self.sigma_outlier_ev = sigma_outlier_ev
+        self.kinds = []
+        
+        super().__init__(output_dim, alpha, learn, hyper_sample, full_covariance, collapse_locally, sigma_ev)
+        
+
+
+    def initialize(self):
+        m0 = np.zeros(self.output_dim)
+        nu0 = self.output_dim + .5
+        k0 = .1
+
+        s = nu0*self.sigma_ev**2.0
+        S0 = np.eye(self.output_dim)*s
+        theta = tuple([m0,k0,S0,nu0])
+
+        m0 = np.zeros(self.output_dim)
+        nu0 = self.output_dim + .5
+        k0 = .01
+
+        s = nu0*self.sigma_outlier_ev**2.0
+        S0 = np.eye(self.output_dim)*s
+        theta_outlier = tuple([m0,k0,S0,nu0])
+
+        self.thetas = [theta,theta_outlier]
+        
+    def _posterior_predictive(self,n,idx,kind=0):
+        m0,k0,S0,nu0 = self.thetas[kind]
+        m,k,S,nu = self._posterior(self.y[idx],m0,k0,S0,nu0)
+        return self._predictive(self.y[n],m,k,S,nu)
+
+    def _prior_predictive(self,n,kind=0):
+        m0,k0,S0,nu0 = self.thetas[kind]
+        return self._predictive(self.y[n],m0,k0,S0,nu0)
+
+    def _get_rho_single(self,n,k):
+        idx = self.z == k
+        idx[n] = False
+        Nk = idx.sum()
+        rho = 0.0
+        if Nk > 0:
+            rho = self._posterior_predictive(n,idx,kind=self.kinds[k]) * Nk
+        return rho
+
+    def _sample_z_single(self,n):
+        # Compute rho = p(z|y)
+        rho_temp = np.zeros(2)
+        rho_temp[0] = self._prior_predictive(n,kind=0)
+        rho_temp[1] = self._prior_predictive(n,kind=1) 
+        kind_now = np.random.multinomial(1,rho_temp/rho_temp.sum()).argmax()
+
+        rho = np.zeros(self.K+1)
+        rho[-1] = rho_temp[kind_now] * self.mix.alpha
+        for k in range(self.K):
+            rho[k] = self._get_rho_single(n,k)
+        rho /= rho.sum()
+
+        # Sample z
+        _z_now = np.random.multinomial(1,rho).argmax()
+        if _z_now > (self.K-1):
+            _z_now = self.K + 0
+            self.kinds.append(kind_now + 0)
+            self.K += 1
+
+        return _z_now
+        
+    def _collapse_groups(self):
+        z_active = np.unique(self.z)
+        self.K = len(z_active)
+        temp = np.zeros_like(self.z)
+        temp_kinds = []
+        for k in range(self.K):
+            idx = self.z == z_active[k]
+            temp[idx] = k
+            temp_kinds.append(self.kinds[z_active[k]])
+        self._parameters['z'] = temp.copy()
+        self.kinds = temp_kinds.copy()
+        
+    def _check_input(self,data: 'Data'):
+        self.y = data.output
+        self.N, self.output_dim = self.y.shape
+
+        if self.z.shape[0] != self.y.shape[0]:
+            self._parameters['z'] = np.zeros(self.N,dtype=int)-1
+            self.K = 0
+            self.kinds = []

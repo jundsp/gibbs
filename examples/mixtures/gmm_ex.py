@@ -72,11 +72,11 @@ plt.figure()
 plt.plot(pi)
 
 #%%
-modeli = InfiniteGMM(collapse_locally=True)
+modeli = InfiniteGMM(collapse_locally=True,sigma_ev=1)
 sampleri = Gibbs()
 
 #%%
-sampleri.fit(data,modeli,samples=20)
+sampleri.fit(data,modeli,samples=100)
 
 #%%
 sampleri.get_estimates(burn_rate=.9)

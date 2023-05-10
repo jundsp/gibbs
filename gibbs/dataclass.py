@@ -3,13 +3,14 @@ import matplotlib.pyplot as  plt
 from .utils import get_colors
 
 class Data(object):
-    def __init__(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None) -> None:
-        self.load(y=y,time=time,x=x)
+    def __init__(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None,group:np.ndarray=None) -> None:
+        self.load(y=y,time=time,x=x,group=group)
 
-    def load(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None) -> None:
+    def load(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None,group:np.ndarray=None) -> None:
         self.output = y
         self.time = time
         self.input = x
+        self.group = group
         self.mask()
         
     @property
@@ -47,13 +48,12 @@ class Data(object):
             self._T = 0
 
     @property
-    def input(self) -> np.ndarray:
-        return self._input
-
-    @property
     def output_dim(self) -> int:
         return self.output.shape[-1]
-
+    
+    @property
+    def input(self) -> np.ndarray:
+        return self._input
     @input.setter
     def input(self,val: np.ndarray) -> None:
         if val is None:
@@ -65,6 +65,25 @@ class Data(object):
 
         self._input = val
 
+
+    @property
+    def group(self) -> np.ndarray:
+        return self._group
+    @group.setter
+    def group(self,val: np.ndarray) -> None:
+        if val is None:
+            val = np.arange(len(self))
+        if val.ndim != 1:
+            raise ValueError("group must be 1d")
+        if val.shape[0] != self.output.shape[0]:
+            raise ValueError("fist dim of group and output must match")
+        self._group = val
+        self._num_groups = len(np.unique(val))
+
+    @property
+    def N(self):
+        return self._num_groups
+    
     @property
     def delta(self):
         return self._mask
@@ -93,7 +112,7 @@ class Data(object):
             self._mask[indices] = True
 
     def filter(self,indices: np.ndarray=None,same_T=True):
-        filtered_data = Data(y=self.output[indices],x=self.input[indices],time=self.time[indices])
+        filtered_data = Data(y=self.output[indices],x=self.input[indices],time=self.time[indices],group=self.group[indices])
         if same_T:
             filtered_data._T = self.T
         return filtered_data
@@ -127,7 +146,7 @@ class Data(object):
         self.time = rz
 
 
-    def plot(self):
+    def plot(self,step_size=1):
         if self.T < 2:
             if self.dim == 2:
                 plt.scatter(self.output[:,0],self.output[:,1],c='k',s=15)
@@ -137,7 +156,7 @@ class Data(object):
             fig,ax = plt.subplots(1,self.dim,figsize=(6,2))
             ax = np.atleast_1d(ax)
             for d in range(self.dim):
-                ax[d].scatter(self.time[self.delta],self.output[self.delta,d],alpha=.5,c='k',s=15,edgecolor='none')
+                ax[d].scatter(self.time[self.delta]*step_size,self.output[self.delta,d],alpha=.5,c='k',s=15,edgecolor='none')
             plt.tight_layout()
 
     def __len__(self) -> int:
