@@ -100,8 +100,11 @@ class InfiniteMixture(Module):
         self._parameters['eta'] = beta.rvs(a,b)
 
     def forward(self,z):
-        z = z.ravel().astype(int)
         self.N = z.shape[0]
         if self.learn:
+            z = z.ravel().astype(int)
             self.sample_alpha(z)
             self.sample_eta()
+
+
+

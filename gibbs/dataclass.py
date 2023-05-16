@@ -77,7 +77,7 @@ class Data(object):
             raise ValueError("group must be 1d")
         if val.shape[0] != self.output.shape[0]:
             raise ValueError("fist dim of group and output must match")
-        self._group = val
+        self._group = np.asanyarray(val).ravel().astype(int)
         self._num_groups = len(np.unique(val))
 
     @property
@@ -111,12 +111,36 @@ class Data(object):
         else:
             self._mask[indices] = True
 
-    def filter(self,indices: np.ndarray=None,same_T=True):
-        filtered_data = Data(y=self.output[indices],x=self.input[indices],time=self.time[indices],group=self.group[indices])
-        if same_T:
-            filtered_data._T = self.T
-        return filtered_data
+    def filter(self,indices: np.ndarray=None,same_T=True,inplace=False):
+        if inplace:
+            _T = self.T
+            self.load(y=self.output[indices],x=self.input[indices],time=self.time[indices],group=self.group[indices])
+            if same_T:
+                self._T = _T + 0
+        else:
+            filtered_data = Data(y=self.output[indices],x=self.input[indices],time=self.time[indices],group=self.group[indices])
+            if same_T:
+                filtered_data._T = self.T
+            return filtered_data
+        
+    def copy(self):
+        return Data(y=self.output.copy(),x=self.input.copy(),time=self.time.copy(),group=self.group.copy())
+    
+    def regroup(self,min_length=1):
+        if min_length > 1:
+            idx_keep = np.zeros(len(self)).astype(bool)
+            for i in np.unique(self.group):
+                idx = self.group == i
+                if idx.sum() >= min_length:
+                    idx_keep[idx] = True
 
+            self.filter(idx_keep,inplace=True)
+
+        G = np.unique(self.group)
+        temp = np.zeros_like(self.group)
+        for g in range(len(G)):
+            temp[self.group == G[g]] = g
+        self.group = temp
 
     @property
     def T(self) -> int:

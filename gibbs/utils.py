@@ -57,10 +57,10 @@ def mvn_logpdf(y,mu,Sigma):
     return -0.5*(np.linalg.slogdet(2*np.pi*Sigma)[-1] + quad)
     
     
-def gmm_generate(n=100,output_dim=2,n_components=3):
+def gmm_generate(n=100,output_dim=2,n_components=3,sigma:float=1):
     mu = mvn.rvs(np.zeros(output_dim),np.eye(output_dim)*5,n_components)
-    nu = output_dim+.1
-    W = np.eye(output_dim)*5.0 / nu
+    nu = output_dim+.5
+    W = np.eye(output_dim)/sigma**2 / nu
 
     Lambda = wishart.rvs(nu,W,n_components)
     if output_dim == 1:
@@ -217,42 +217,98 @@ def relabel(probs,iters=10,verbose=False):
     return tau
 
 
+def gamma_moments2params(mu,var):
+    a = mu**2 / var
+    b = mu / var
+    return a, b 
+
+def gamma_params2moments(a,b):
+    mu = a / b
+    var = a / b ** 2
+    return mu, var 
+
+def invgamma_moments2params(mu,var):
+    a = (mu**2 + 2*var) / var
+    b = (mu*(mu**2 + var)) / var
+    return a, b 
+
+def invgamma_params2moments(a,b):
+    mu = b / (a-1)
+    var = b ** 2 / ((a-1)**2 * (a-2))
+    return mu, var
+
+def invgamma_b(mu,a=2):
+    b = mu * (a-1)
+    if b <= 0:
+        b = mu * a
+    return b
+
+def invwishart_moments2params(mu,var):
+    mu = np.atleast_1d(mu)
+    p = len(mu)
+    nu = (3 + p + 2*mu**2 / var).mean()
+    Psi = 2*(mu**2 + mu*var) / var
+    return nu, np.diag(Psi)
+
+def invwishart_moments2params(mu,var):
+    a,b = invgamma_moments2params(mu,var)
+    nu = 2*np.min(a)
+    psi = 2*b
+    return nu, np.diag(psi)
+
+
+def stdev_to_moments(stdev,variance_factor=.5):
+    ev = stdev ** 2
+    var = (variance_factor*stdev)**2
+    return ev, var
+
+
+class DirichletProcess(object):
+    '''
+    Dirichlet process model, for generation.
+
+    Author: Julian Neri, 2022
+    '''
+    def __init__(self,alpha=1):
+        self.alpha = alpha
+        self.reset()
+        
+    def reset(self):
+        self.Nk = []
+        self.N = 0
+        self.K = 0
+
+    def sample(self):
+        if self.K == 0:
+            self.Nk = [1]
+            self.K = 1
+            z = 0
+        else:
+            pk = np.zeros(self.K+1)
+            Z = self.N+self.alpha-1
+            for k in range(self.K):
+                pk[k] = self.Nk[k] / Z
+            pk[-1] = self.alpha / Z
+            pk /= pk.sum()
+            z = np.random.multinomial(1,pk).argmax(-1)
+            if z > self.K - 1:
+                self.Nk.append(1)
+                self.K += 1
+            else:
+                self.Nk[z] += 1
+        self.N += 1
+        return z
+
+
 if __name__ == "__main__":
-    z = np.random.randint(0,3,(3,4))
-    rho = categorical2multinomial(z)
-    print(rho)
-    
-    import matplotlib.pyplot as plt 
-    nfft = 128
-    w = np.hanning(nfft)
-    F = np.fft.fft(np.eye(nfft))
-    F = F * w[:,None]
-
-    M = nfft//2+1
-    F = F[:,:M]
-    # plt.plot(F[:,nfft//2].imag)
     
 
-    y = np.cos(2*np.pi*np.arange(nfft)/nfft*10.5) * w * np.exp(-np.linspace(0,6,nfft))*5
+    dp = DirichletProcess(alpha=.7)
+    z = []
+    Nk = np.zeros((100,20))
+    for samps in range(100):
+        z.append(dp.sample())
+        Nk[samps,:len(dp.Nk)] = dp.Nk.copy()
+    Nk = Nk[:,:len(dp.Nk)]
+    plt.plot(Nk)
 
-    sigma2 = .1**2
-    Lam0 = np.eye(M)*1
-    Lam = (F.conj().T @ F + Lam0)/sigma2
-    ell = (F.conj().T @ y)/sigma2
-
-    Sigma = la.inv(Lam)
-    mu = Sigma @ ell
-
-    x = mvnrnd(mu,Sigma,10).T
-    y_hat = 2*(F @ x).real
-
-    plt.plot(y_hat.real,'r',alpha=.1)
-    plt.plot(y.real,'k')
-
-    # x = mvnrnd(np.zeros(2)+1,np.eye(2),n=1000)
-    # plt.figure()
-    # plt.plot(x[:,0],x[:,1],'.')
-
-    fig,ax = plt.subplots(2)
-    ax[0].plot(x.real,'k',alpha=.5)
-    ax[1].plot(x.imag,'r',alpha=.5)
