@@ -318,10 +318,11 @@ class InfiniteDistributionMix(InfiniteGMM):
 
         Author: Julian Neri, 2023
     '''
-    def __init__(self, output_dim=1, alpha=1, learn=True, hyper_sample=True, full_covariance=True, collapse_locally: bool = True, sigma_ev: float = 1, random_proposal:bool=False):
+    def __init__(self, output_dim=1, alpha=1, learn=True, collapse_locally: bool = True, sigma_ev: float = 1, random_proposal:bool=False, sort_by_group:bool=False):
         self.kinds = []
         self.random_proposal = random_proposal
-        super().__init__(output_dim, alpha, learn, hyper_sample, full_covariance, collapse_locally, sigma_ev)
+        self.sort_by_group = sort_by_group
+        super().__init__(output_dim=output_dim,alpha=alpha,learn=learn,collapse_locally=collapse_locally,sigma_ev=sigma_ev)
         
     def initialize(self):
         self.dists = []
@@ -356,8 +357,7 @@ class InfiniteDistributionMix(InfiniteGMM):
         if not np.isfinite(temp_sum):
             logp_temp = np.zeros_like(logrho_temp) - np.log(len(logrho_temp))
 
-        p_temp = np.exp(logp_temp)
-        kind_now = np.random.multinomial(1,p_temp).argmax()
+        kind_now = np.random.multinomial(1,np.exp(logp_temp)).argmax()
         if self.random_proposal:
             kind_now = np.random.multinomial(1,np.ones(self.num_kinds)/self.num_kinds).argmax()
 
@@ -391,6 +391,21 @@ class InfiniteDistributionMix(InfiniteGMM):
             temp_kinds.append(self.kinds[z_active[k]])
         self._parameters['z'] = temp.copy()
         self.kinds = temp_kinds.copy()
+
+    def _sample_z(self):
+        if self.sort_by_group:
+            tau = self.data.argsort_group()
+        else:
+            tau = np.random.permutation(self.N)
+            
+        for n in tau:
+            self._parameters['z'][n] = self._sample_z_single(n)
+            if self.collapse_locally:
+                if np.all(self.z >= 0):
+                    self._collapse_groups()
+
+        if self.collapse_locally == False:
+            self._collapse_groups()
         
     def _check_input(self, data: Data):
         self.data = data

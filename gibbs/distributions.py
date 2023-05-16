@@ -10,7 +10,7 @@ class Distribution(object):
     def __init__(self) -> None:
         pass
 
-    def posterior(self,y:np.ndarray):
+    def posterior(self,y:np.ndarray,x:np.ndarray=None,x_star:np.ndarray=None):
         return 0
     
     def predictive(self,y:np.ndarray,a,b):
@@ -34,7 +34,7 @@ class LaplaceGamma(Distribution):
         self.a0 = 2
         self.b0 = self.a0 * sigma_ev ** 2
 
-    def posterior(self,y):
+    def posterior(self,y,x=None,x_star=None):
         y = np.atleast_2d(y)
         a_hat = self.a0 + y.shape[0]
         b_hat = self.b0 + np.abs(y).sum(0)
@@ -52,9 +52,9 @@ class LaplaceGamma(Distribution):
         return a, b
     
     def params2moments(self,a, b):
-        mean = np.zeros_like(b)
+        mean = np.zeros((len(b),1))
         var = (2*b**2)/(2 - 3*a + a**2)
-        cov = np.diag(var)
+        cov = np.diag(var)[:,None,None]
         return mean, cov
     
     def posterior_predictive(self,y_star,y,x_star=None,x=None):
@@ -72,7 +72,7 @@ class Cauchy(Distribution):
         scale = np.asarray(scale).ravel().astype(float)
         self.scale = scale
 
-    def posterior(self,y):
+    def posterior(self,y=None,x=None,x_star=None):
         return np.zeros_like(self.scale), self.scale
     
     def predictive(self,y,scale):
@@ -110,7 +110,7 @@ class NormalWishart(Distribution):
         self.S0 = S0
         self.nu0 = nu0
 
-    def posterior(self,y):
+    def posterior(self,y,x=None,x_star=None):
         N = y.shape[0]
         yk = np.atleast_2d(y)
         y_bar = yk.mean(0)
@@ -133,7 +133,8 @@ class NormalWishart(Distribution):
     
     def predictive(self,y,m,k,S,nu):
         _m, _S, _nu = self.predictive_parameters(m,k,S,nu)
-        return stats.multivariate_t.logpdf(y,loc=_m,shape=_S,df=_nu)
+        logp = stats.multivariate_t.logpdf(y,loc=_m,shape=_S,df=_nu)
+        return logp.sum()
 
     def posterior_predictive(self,y_star,y,x_star=None,x=None):
         m,k,S,nu = self.posterior(y)

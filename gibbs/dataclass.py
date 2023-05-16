@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as  plt
-from .utils import get_colors
 
 class Data(object):
     def __init__(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None,group:np.ndarray=None) -> None:
@@ -142,6 +141,15 @@ class Data(object):
             temp[self.group == G[g]] = g
         self.group = temp
 
+    def argsort_group(self):
+        unique_groups = np.unique(self.group)
+        n_groups = len(unique_groups)
+        len_group = np.zeros(n_groups)
+        for i in range(n_groups):
+            len_group[i] = np.sum(self.group==i)
+        return np.argsort(len_group)[::-1]
+
+
     @property
     def T(self) -> int:
         return self._T
@@ -206,5 +214,8 @@ if __name__ == "__main__":
 
     data = Data(y=yy,time=tt,x=xx)
     data.load(y=yy,time=tt,x=xx)
-
+    data.regroup()
     data.plot()
+
+    idx = data.argsort_group()
+
