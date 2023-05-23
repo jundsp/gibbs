@@ -40,13 +40,15 @@ class LaplaceGamma(Distribution):
         b_hat = self.b0 + np.abs(y).sum(0)
         return a_hat, b_hat
     
-    def predictive(self,y,a,b):
+    def predictive(self,y,a,b,reduce=True):
         y = np.atleast_2d(y)
         b = np.atleast_2d(b)
         a_hat = a + 1
         b_hat = b + np.abs(y)
         logp = -1*np.log(2) + a * np.log(b) - a_hat*np.log(b_hat) + gammaln(a_hat) - gammaln(a)
-        return (logp.sum())
+        if reduce:
+            logp = logp.sum()
+        return logp
     
     def predictive_parameters(self,a,b):
         return a, b
@@ -57,12 +59,12 @@ class LaplaceGamma(Distribution):
         cov = np.diag(var)[:,None,None]
         return mean, cov
     
-    def posterior_predictive(self,y_star,y,x_star=None,x=None):
+    def posterior_predictive(self,y_star,y,x_star=None,x=None,reduce=True):
         a, b, = self.posterior(y)
-        return self.predictive(y_star,a=a,b=b)
+        return self.predictive(y_star,a=a,b=b,reduce=reduce)
 
-    def prior_predictive(self,y_star,x_star=None):
-        return self.predictive(y_star,a=self.a0,b=self.b0)
+    def prior_predictive(self,y_star,x_star=None,reduce=True):
+        return self.predictive(y_star,a=self.a0,b=self.b0,reduce=reduce)
     
 
 class Cauchy(Distribution):
@@ -198,14 +200,16 @@ class GaussianProcess(Distribution):
         cov = var * (nu)/(nu-2)
         return m, cov
     
-    def predictive(self,y,m,var,nu):
+    def predictive(self,y,m,var,nu,reduce=True):
         N = y.shape[0]
         logp = np.zeros(N)
         for n in range(N):
             logp[n] = stats.multivariate_t.logpdf(y[n],loc=m[n],shape=var[n],df=nu)
-        return logp.sum()
+        if reduce:
+            logp = logp.sum()
+        return logp
         
-    def posterior_predictive(self,y_star,x_star,y,x):
+    def posterior_predictive(self,y_star,x_star,y,x,reduce=True):
         if x_star.ndim != 2:
             raise ValueError("x_star must be 2d")
         if y_star.ndim != 2:
@@ -216,9 +220,9 @@ class GaussianProcess(Distribution):
             raise ValueError("x must be 2d")
         m, Sigma, a_hat, b_hat = self.posterior(x_star,y,x)     
         m, var, nu = self.predictive_parameters(m,Sigma,a_hat,b_hat)
-        return self.predictive(y_star,m=m,var=var,nu=nu)
+        return self.predictive(y_star,m=m,var=var,nu=nu,reduce=reduce)
 
-    def prior_predictive(self,y_star,x_star):
+    def prior_predictive(self,y_star,x_star,reduce=True):
         if x_star.ndim != 2:
             raise ValueError("x_star must be 2d")
         if y_star.ndim != 2:
@@ -227,9 +231,9 @@ class GaussianProcess(Distribution):
         N_star = x_star.shape[0]
         m, Sigma = np.zeros((N_star,output_dim)), np.zeros((N_star,output_dim,output_dim))
         for n in range(N_star):
-            Sigma[n] = self.kernel(x_star[n],x_star[n]) + 1/self.beta  
+            Sigma[n] = self.kernel(x_star[[n]],x_star[[n]]) + 1/self.beta  
         m, var, nu = self.predictive_parameters(m,Sigma,self.a0,self.b0)
-        return self.predictive(y_star,m=m,var=var,nu=nu)
+        return self.predictive(y_star,m=m,var=var,nu=nu,reduce=reduce)
     
 
 class MultidimDistribution(Distribution):
@@ -237,14 +241,14 @@ class MultidimDistribution(Distribution):
         super().__init__()
         self.list_of_dists = dists
 
-    def posterior_predictive(self, y_star: np.ndarray, y: np.ndarray, x_star: np.ndarray = None, x: np.ndarray = None):
+    def posterior_predictive(self, y_star: np.ndarray, y: np.ndarray, x_star: np.ndarray = None, x: np.ndarray = None, reduce=True):
         p = 0
         for i in range(y_star.shape[-1]):
-            p += self.list_of_dists[i].posterior_predictive(y_star=y_star[:,[i]],y=y[:,[i]],x_star=x_star,x=x)
+            p += self.list_of_dists[i].posterior_predictive(y_star=y_star[:,[i]],y=y[:,[i]],x_star=x_star,x=x,reduce=reduce)
         return p
     
-    def prior_predictive(self, y_star: np.ndarray, x_star: np.ndarray = None):
+    def prior_predictive(self, y_star: np.ndarray, x_star: np.ndarray = None, reduce=True):
         p = 0
         for i in range(y_star.shape[-1]):
-            p += self.list_of_dists[i].prior_predictive(y_star=y_star[:,[i]],x_star=x_star)
+            p += self.list_of_dists[i].prior_predictive(y_star=y_star[:,[i]],x_star=x_star,reduce=reduce)
         return p
