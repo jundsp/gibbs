@@ -2,9 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.stats import multinomial, wishart
-from scipy.stats import multivariate_normal as mvn
+from scipy.stats import multivariate_normal as mvn, multivariate_t as mvt
 import scipy.linalg as la
 from scipy.optimize import linear_sum_assignment
+from scipy.special import gammaln
 
 def plot_cov_ellipse(pos,cov, nstd=2, ax=None, fill=None, **kwargs):
     """
@@ -55,7 +56,6 @@ def mvn_logpdf(y,mu,Sigma):
     iSigma = la.inv(Sigma)[None,:,:]
     quad = (y_eps[:,None,:] @ iSigma @ y_eps[:,:,None]).ravel()
     return -0.5*(np.linalg.slogdet(2*np.pi*Sigma)[-1] + quad)
-    
     
 def gmm_generate(n=100,output_dim=2,n_components=3,sigma:float=1):
     mu = mvn.rvs(np.zeros(output_dim),np.eye(output_dim)*5,n_components)
@@ -300,15 +300,49 @@ class DirichletProcess(object):
         return z
 
 
-if __name__ == "__main__":
+def mvt_logpdf(y:np.ndarray,loc:np.ndarray,shape:np.ndarray,df:int):
+    """
+    Multivariate-t distribution log pdf
+    """
+    if y.ndim != loc.ndim:
+        raise ValueError("number of dims in y and params must match")
+    if y.shape[0] != shape.shape[0]:
+        raise ValueError("number of obs in y and shape must match")
+    if y.shape[-1] != shape.shape[-1]:
+        raise ValueError("dim of y must match shape")
     
+    if y.ndim == 1:
+        y = y[None,...]
+        loc = loc[None,...]
+        shape = shape[None,...]
+    if y.ndim == 2:
+        if shape.ndim == 2:
+            shape = shape[None,...]
+    # T x M or T X N X M
+    Sigma = shape.copy()
+    p = y.shape[-1]
+    dp2 = (df + p) / 2
+    y_eps = y-loc
+    iSigma = np.linalg.inv(Sigma)
+    quad = (y_eps[:,None,:] @ iSigma @ y_eps[:,:,None]).ravel()
+    term1 = -dp2 * np.log(1 + 1/df * quad)
+    term2 = gammaln(dp2)
+    term3 = gammaln(df/2) + (p/2)*np.log(df) + p/2*np.log(np.pi) + 1/2*np.linalg.slogdet(Sigma)[-1]
+    return (term1 + term2 - term3).ravel()
 
-    dp = DirichletProcess(alpha=.7)
-    z = []
-    Nk = np.zeros((100,20))
-    for samps in range(100):
-        z.append(dp.sample())
-        Nk[samps,:len(dp.Nk)] = dp.Nk.copy()
-    Nk = Nk[:,:len(dp.Nk)]
-    plt.plot(Nk)
+if __name__ == "__main__":
+
+    N = 2
+    y = np.random.randn(N,2)
+    mu = np.random.randn(N,2)
+    Sigma = np.stack([np.eye(2)]*N,0)
+    nu = 2
+
+    p1 = np.zeros(N)
+    for n in range(y.shape[0]):
+        p1[n] = mvt.logpdf(y[n],loc=mu[n],shape=Sigma[n],df=nu)
+    p2 = mvt_logpdf(y=y,loc=mu,shape=Sigma,df=nu)
+
+    
+    print(p1-p2)
 

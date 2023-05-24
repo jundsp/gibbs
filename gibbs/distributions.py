@@ -3,7 +3,7 @@ import scipy.stats as stats
 from scipy.special import gamma, gammaln
 from .kernels import RBF
 import scipy.linalg as la
-from .utils import gamma_moments2params
+from .utils import gamma_moments2params, mvt_logpdf
 from typing import List
 
 class Distribution(object):
@@ -183,6 +183,8 @@ class GaussianProcess(Distribution):
         output_dim = y.shape[-1]
         N_star = x_star.shape[0]
         m, Sigma = np.zeros((N_star,output_dim)), np.zeros((N_star,output_dim,output_dim))
+
+        # batch this?
         for n in range(N_star):
             k = self.kernel(x,x_star[[n]])
             c = self.kernel(x_star[[n]],x_star[[n]]) + 1/self.beta
@@ -201,10 +203,12 @@ class GaussianProcess(Distribution):
         return m, cov
     
     def predictive(self,y,m,var,nu,reduce=True):
-        N = y.shape[0]
-        logp = np.zeros(N)
-        for n in range(N):
-            logp[n] = stats.multivariate_t.logpdf(y[n],loc=m[n],shape=var[n],df=nu)
+        # N = y.shape[0]   
+        # logp = np.zeros(N)
+        # for n in range(N):
+        #     logp[n] = stats.multivariate_t.logpdf(y[n],loc=m[n],shape=var[n],df=nu)
+             
+        logp = mvt_logpdf(y=y,loc=m,shape=var,df=nu)
         if reduce:
             logp = logp.sum()
         return logp
