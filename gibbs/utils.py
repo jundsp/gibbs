@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.stats import multinomial, wishart
-from scipy.stats import multivariate_normal as mvn, multivariate_t as mvt
+from scipy.stats import multivariate_normal as mvn, multivariate_t as mvt, wishart
 import scipy.linalg as la
 from scipy.optimize import linear_sum_assignment
 from scipy.special import gammaln
@@ -332,11 +332,12 @@ def mvt_logpdf(y:np.ndarray,loc:np.ndarray,shape:np.ndarray,df:int):
 
 if __name__ == "__main__":
 
-    N = 2
+    N = 4
     y = np.random.randn(N,2)
-    mu = np.random.randn(N,2)
-    Sigma = np.stack([np.eye(2)]*N,0)
-    nu = 2
+    mu = np.random.randn(N,2)*0
+    Sigma = wishart.rvs(df=2,scale=np.eye(2),size=N)
+    # Sigma = np.stack([np.eye(2)]*N,0)
+    nu = np.ones(1)*3.4
 
     p1 = np.zeros(N)
     for n in range(y.shape[0]):
