@@ -19,11 +19,10 @@ class Gibbs(object):
 
     Author: Julian Neri, May 2022
     '''
-    def __init__(self,verbose:bool=True):
+    def __init__(self):
         self._samples = OrderedDict()
         self._estimates = OrderedDict()
         self.step_count = 0
-        self.verbose = bool(verbose)
 
     @property
     def nparams(self):
@@ -74,7 +73,7 @@ class Gibbs(object):
         self.step_count += 1
 
     def fit(self,data: 'Data', model: 'Module',samples=10):
-        for iter in tqdm(range(samples),disable=(not self.verbose)):
+        for iter in tqdm(range(samples)):
             model(data)
             self.step(model.named_parameters())
         self.get_estimates()
