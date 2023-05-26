@@ -4,7 +4,7 @@ from .plate import Plate
 from .parameters import NormalWishart
 from .mixture import Mixture, InfiniteMixture
 from ..dataclass import Data
-from ..distributions import Distribution, NormalWishart as NWdist
+from ..distributions import Distribution, NormalWishart as NWdist, LaplaceGamma
 from scipy.stats import multivariate_t as mvt
 from scipy.special import logsumexp
 
@@ -171,12 +171,13 @@ class FiniteGMM(Module):
         self.N, self.output_dim = self.y.shape
 
         if self.z.shape[0] != self.y.shape[0]:
-            self._parameters['z'] = np.random.randint(0,self.K,self.N)
+            self._parameters['z'] = np.zeros(self.N,dtype=int)-1
 
     def forward(self,data: 'Data'):
         self._check_input(data)
         self._sample_z()
         self.mix(self.z)
+
 
 class InfiniteGMM(Module):
     r'''
@@ -307,9 +308,6 @@ class InfiniteGMM(Module):
         self.mix(self.z)
 
 
-
-
-
 class InfiniteDistributionMix(InfiniteGMM):
     r'''
         Infinite Bayesian mixture of distributions, with different kinds of hyperparameters.
@@ -327,6 +325,7 @@ class InfiniteDistributionMix(InfiniteGMM):
     def initialize(self):
         self.dists = []
         self.dists.append(NWdist(sigma_ev=self.sigma_ev,output_dim=self.output_dim))
+        self.dists.append(LaplaceGamma(sigma_ev=self.sigma_ev,output_dim=self.output_dim))
 
     @property
     def num_kinds(self):
@@ -428,14 +427,15 @@ class FiniteDistributionMix(FiniteGMM):
         Author: Julian Neri, 2023
     '''
     def __init__(self, components=2, output_dim=1, alpha=1, learn=True, sigma_ev:float=1, random_proposal:bool=False, sort_by_group:bool=False):
-        self.kinds = [0,0]
-        self.random_proposal = random_proposal
+        self.kinds = [0]*components
+        self.kinds[0] = 1
         self.sort_by_group = sort_by_group
         super().__init__(components=components,output_dim=output_dim,alpha=alpha,learn=learn,sigma_ev=sigma_ev)
         
     def initialize(self):
         self.dists = []
         self.dists.append(NWdist(sigma_ev=self.sigma_ev,output_dim=self.output_dim))
+        self.dists.append(LaplaceGamma(sigma_ev=self.sigma_ev,output_dim=self.output_dim))
 
     @property
     def num_kinds(self):
@@ -460,32 +460,39 @@ class FiniteDistributionMix(FiniteGMM):
         else:
             rho = self._prior_predictive(n,dist=self.dists[self.kinds[k]])
         return rho + np.log(pz)
+    
 
     def _sample_z_single(self,n):
         # Compute rho = p(z|y)
-        rho = np.zeros(self.K)
+        logrho = np.zeros(self.K) - np.inf
         for k in range(self.K):
-            rho[k] = self._get_rho_single(n,k)
-        rho /= rho.sum()
+            logrho[k] = self._get_rho_single(n,k)
+
+        logpy = logsumexp(logrho)
+        if not np.isfinite(logpy):
+            logrho[:] = 0
+            logpy = logsumexp(logrho)
+        logrho -= logpy
+        rho = np.exp(logrho)
         
         # Sample z
         _z_now = np.random.multinomial(1,rho).argmax()
         return _z_now
-        
+    
+
     def _sample_z(self):
-        tau = np.random.permutation(self.N)
+        if self.sort_by_group:
+            tau = self.data.argsort_group()
+        else:
+            tau = np.random.permutation(self.N)
+            
         for n in tau:
             self._parameters['z'][n] = self._sample_z_single(n)
-        
+
     def _check_input(self,data: 'Data'):
         self.data = data
         self.N = data.N
         self.output_dim = data.output_dim
 
         if self.z.shape[0] != self.N:
-            self._parameters['z'] = np.random.randint(0,self.K,self.N)
-
-    def forward(self,data: 'Data'):
-        self._check_input(data)
-        self._sample_z()
-        self.mix(self.z)
+            self._parameters['z'] = np.zeros(self.N,dtype=int)-1

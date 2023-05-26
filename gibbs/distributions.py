@@ -56,7 +56,7 @@ class LaplaceGamma(Distribution):
     def params2moments(self,a, b):
         mean = np.zeros((len(b),1))
         var = (2*b**2)/(2 - 3*a + a**2)
-        cov = np.diag(var)[:,None,None]
+        cov = np.diag(var)
         return mean, cov
     
     def posterior_predictive(self,y_star,y,x_star=None,x=None,reduce=True):
