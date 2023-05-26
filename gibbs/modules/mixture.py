@@ -73,8 +73,8 @@ class InfiniteMixture(Module):
         self.learn = learn
 
         # Control parameters of the prior
-        self.a = 1
-        self.b = 1
+        self.a = 1.0
+        self.b = self.a / alpha
 
         self._parameters["eta"] = np.array([.5])
         self._parameters["alpha"] = np.atleast_1d(alpha)
@@ -83,11 +83,20 @@ class InfiniteMixture(Module):
         K = len(np.unique(z))
         
         b_hat = self.b - np.log(self.eta)
+        if not np.isfinite(b_hat):
+            b_hat = self.b
+        if b_hat <= 0:
+            b_hat = self.b
+            
         y = self.a + K - 1
         z = self.N * b_hat
         pi_eta = y/(y+z)
+        if not np.isfinite(pi_eta):
+            pi_eta = np.zeros_like(pi_eta) + 1e-3
+        pi_eta = np.clip(pi_eta,0,1)
         pi_ = np.array([pi_eta,1-pi_eta]).ravel()
-        m = multinomial.rvs(1.0,pi_).argmax()
+        pi_  /= pi_.sum()
+        m = np.random.multinomial(1.0,pi_).argmax()
         if m == 0:
             a_hat = self.a + K
         else:
