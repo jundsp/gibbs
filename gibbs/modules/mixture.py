@@ -11,6 +11,9 @@ import scipy.linalg as la
 from ..utils import mvn_logpdf
 from .module import Module
 
+np.seterr(all='ignore')
+
+
 class Mixture(Module):
     r'''
         Finite Bayesian mixture.
