@@ -5,7 +5,7 @@ from scipy.stats import multinomial, wishart
 from scipy.stats import multivariate_normal as mvn, multivariate_t as mvt, wishart
 import scipy.linalg as la
 from scipy.optimize import linear_sum_assignment
-from scipy.special import gammaln
+from scipy.special import gammaln, logsumexp
 
 def plot_cov_ellipse(pos,cov, nstd=2, ax=None, fill=None, **kwargs):
     """
@@ -215,6 +215,15 @@ def relabel(probs,iters=10,verbose=False):
             break
 
     return tau
+
+
+def log_normalize(alpha):
+    c = logsumexp(alpha)
+    if np.isinf(c):
+        alpha = np.zeros_like(alpha)
+        c = logsumexp(alpha)
+    alpha -= c
+    return alpha, c
 
 
 def gamma_moments2params(mu,var):

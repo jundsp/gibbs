@@ -2,14 +2,13 @@ import numpy as np
 
 from scipy.stats import multivariate_normal as mvn
 from scipy.stats import dirichlet
-from scipy.special import logsumexp
 from .module import Module 
 from .parameters import NormalWishart
 from .plate import Plate
 from ..dataclass import Data
+from ..utils import log_normalize
 
 np.seterr(all='ignore')
-
 
 #* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
@@ -80,17 +79,18 @@ class HMM(Module):
         prediction = np.log(self._parameters['pi']).reshape(1,-1)
         for t in range(self.T):
             alpha[t] = logl[t] + prediction
-            c[t] = logsumexp(alpha[t])
-            alpha[t] -= c[t]
+            alpha[t], c[t] = log_normalize(alpha[t])
             prediction = self._predict_hmm(alpha[t])
         return alpha
-
+    
     def _backward_hmm(self,log_alpha:np.ndarray):
-        beta = log_alpha[-1] - logsumexp(log_alpha[-1])
-        self._parameters['z'][-1] = np.random.multinomial(1,np.exp(beta)).argmax()
+        beta = log_alpha[-1].copy()
+        beta, c = log_normalize(beta)
+        beta = np.exp(beta)            
+        self._parameters['z'][-1] = np.random.multinomial(1,beta).argmax()
         for t in range(self.T-2,-1,-1):
             beta = self.log_Gamma[:,self.z[t+1]] + log_alpha[t]
-            beta -= logsumexp(beta)
+            beta, c = log_normalize(beta)
             beta = np.exp(beta)
             self._parameters['z'][t] = np.random.multinomial(1,beta).argmax()
         
