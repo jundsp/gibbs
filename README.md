@@ -1,7 +1,19 @@
 # gibbs
 
-A python package of Gibbs samplers for inferring and learning hierarchical Bayesian models.
+A python package for Gibbs sampling of Bayesian hierarchical models.
 
+Includes base classes for sampling and modules for a variety of popular Bayesian models like time-series, finite, and infinite mixture models.
+
+## Installation
+
+Clone the repository, and enter the directory,
+```console
+cd /gibbs
+```
+Then install the package,
+```console
+python3 -m pip install .
+```
 
 ---
 ## Unit tests
@@ -12,7 +24,7 @@ python -m unittest tests/gibbs_basic_test.py
 ```
 
 ---
-Julian Neri  
-McGill University  
-April 2023
+Author: Julian Neri  
+Affil: McGill University  
+Date: September 2023
 
