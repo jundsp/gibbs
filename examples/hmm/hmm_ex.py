@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-plt.style.use('sines-latex')
+plt.style.use('gibbs.mplstyles.latex')
 
 #%%
 # np.random.seed(123)

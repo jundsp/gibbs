@@ -1,15 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as  plt
-from .utils import get_colors
 
 class Data(object):
-    def __init__(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None) -> None:
-        self.load(y=y,time=time,x=x)
+    def __init__(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None,group:np.ndarray=None) -> None:
+        self.load(y=y,time=time,x=x,group=group)
 
-    def load(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None) -> None:
+    def load(self,y: np.ndarray=None,time:np.ndarray=None,x:np.ndarray=None,group:np.ndarray=None) -> None:
         self.output = y
         self.time = time
         self.input = x
+        self.group = group
         self.mask()
         
     @property
@@ -47,13 +47,12 @@ class Data(object):
             self._T = 0
 
     @property
-    def input(self) -> np.ndarray:
-        return self._input
-
-    @property
     def output_dim(self) -> int:
         return self.output.shape[-1]
-
+    
+    @property
+    def input(self) -> np.ndarray:
+        return self._input
     @input.setter
     def input(self,val: np.ndarray) -> None:
         if val is None:
@@ -65,6 +64,25 @@ class Data(object):
 
         self._input = val
 
+
+    @property
+    def group(self) -> np.ndarray:
+        return self._group
+    @group.setter
+    def group(self,val: np.ndarray) -> None:
+        if val is None:
+            val = np.arange(len(self))
+        if val.ndim != 1:
+            raise ValueError("group must be 1d")
+        if val.shape[0] != self.output.shape[0]:
+            raise ValueError("fist dim of group and output must match")
+        self._group = np.asanyarray(val).ravel().astype(int)
+        self._num_groups = len(np.unique(val))
+
+    @property
+    def N(self):
+        return self._num_groups
+    
     @property
     def delta(self):
         return self._mask
@@ -92,11 +110,44 @@ class Data(object):
         else:
             self._mask[indices] = True
 
-    def filter(self,indices: np.ndarray=None,same_T=True):
-        filtered_data = Data(y=self.output[indices],x=self.input[indices],time=self.time[indices])
-        if same_T:
-            filtered_data._T = self.T
-        return filtered_data
+    def filter(self,indices: np.ndarray=None,same_T=True,inplace=False):
+        if inplace:
+            _T = self.T
+            self.load(y=self.output[indices],x=self.input[indices],time=self.time[indices],group=self.group[indices])
+            if same_T:
+                self._T = _T + 0
+        else:
+            filtered_data = Data(y=self.output[indices],x=self.input[indices],time=self.time[indices],group=self.group[indices])
+            if same_T:
+                filtered_data._T = self.T
+            return filtered_data
+        
+    def copy(self):
+        return Data(y=self.output.copy(),x=self.input.copy(),time=self.time.copy(),group=self.group.copy())
+    
+    def regroup(self,min_length=1):
+        if min_length > 1:
+            idx_keep = np.zeros(len(self)).astype(bool)
+            for i in np.unique(self.group):
+                idx = self.group == i
+                if idx.sum() >= min_length:
+                    idx_keep[idx] = True
+
+            self.filter(idx_keep,inplace=True)
+
+        G = np.unique(self.group)
+        temp = np.zeros_like(self.group)
+        for g in range(len(G)):
+            temp[self.group == G[g]] = g
+        self.group = temp
+
+    def argsort_group(self):
+        unique_groups = np.unique(self.group)
+        n_groups = len(unique_groups)
+        len_group = np.zeros(n_groups)
+        for i in range(n_groups):
+            len_group[i] = np.sum(self.group==i)
+        return np.argsort(len_group)[::-1]
 
 
     @property
@@ -127,17 +178,18 @@ class Data(object):
         self.time = rz
 
 
-    def plot(self):
+    def plot(self,step_size=1):
         if self.T < 2:
             if self.dim == 2:
                 plt.scatter(self.output[:,0],self.output[:,1],c='k',s=15)
             elif self.dim == 1:
                 plt.scatter(self.input, self.output,c='k')
         else:
-            colors = get_colors()
+            fig,ax = plt.subplots(1,self.dim,figsize=(6,2))
+            ax = np.atleast_1d(ax)
             for d in range(self.dim):
-                plt.scatter(self.time[self.delta],self.output[self.delta,d],alpha=.5,c='k',s=15,edgecolor='none')
-            plt.xlim(0,self.T)
+                ax[d].scatter(self.time[self.delta]*step_size,self.output[self.delta,d],alpha=.5,c='k',s=15,edgecolor='none')
+            plt.tight_layout()
 
     def __len__(self) -> int:
         return self.output.shape[0]
@@ -162,5 +214,8 @@ if __name__ == "__main__":
 
     data = Data(y=yy,time=tt,x=xx)
     data.load(y=yy,time=tt,x=xx)
-
+    data.regroup()
     data.plot()
+
+    idx = data.argsort_group()
+

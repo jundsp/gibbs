@@ -1,12 +1,6 @@
 from typing import OrderedDict,overload,Optional, Iterable, Set
 from itertools import islice
 import operator
-import numpy as np
-
-from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet
-from scipy.special import logsumexp
-import scipy.linalg as la
 
 from ..utils import mvn_logpdf
 from .module import Module
@@ -56,7 +50,6 @@ class Plate(Module):
         self.add_module(str(len(self)), module)
         return self
 
-    #** How to generalize this? Modules will have to have the same input
     def forward(self,y,labels):
         for k,m in enumerate(self._modules):
             idx = (labels == k)

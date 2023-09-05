@@ -1,20 +1,13 @@
-from typing import OrderedDict,overload,Optional, Iterable, Set
-from itertools import islice
-import operator
 import numpy as np
 
 from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet
-from scipy.special import logsumexp
 import scipy.linalg as la
 
 from ..utils import mvn_logpdf
 from .module import Module
 from .parameters import NormalWishart
-from .plate import TimePlate, Plate
+from .plate import TimePlate
 from ..dataclass import Data
-
-#* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
 class StateSpace(Module):
     def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True,sigma_ev_sys=.1, sigma_ev_obs=.1, init_method="random"):
@@ -95,13 +88,13 @@ class StateSpace(Module):
 
 class LDS(Module):
     r'''
-        Bayesian linear dynamical system.
+        Bayesian linear dynamical system (LDS).
 
         Gibbs sampling. 
 
         Author: Julian Neri, 2022
     '''
-    def __init__(self,output_dim=1,state_dim=2,states=1,parameter_sampling=True,hyper_sample=True,full_covariance=True,init_method='random'):
+    def __init__(self,output_dim=1,state_dim=2,states=1,parameter_sampling=True,hyper_sample=True,full_covariance=True,init_method='random',hybrid=False):
         super(LDS,self).__init__()
         self._dimy = output_dim
         self._dimx = state_dim
@@ -110,8 +103,12 @@ class LDS(Module):
         self.hyper_sample = hyper_sample
         self.full_cov = full_covariance
         self.init_method = init_method
+        self.hybrid = hybrid
 
         self._parameters["x"] = np.zeros((1,state_dim))
+        self._mu = np.zeros((1,state_dim))
+        self._V = np.zeros((1,state_dim,state_dim))
+        self._V12 = np.zeros((1,state_dim,state_dim))
         self.initialize()
 
     def initialize(self):
@@ -209,38 +206,44 @@ class LDS(Module):
         mu = V @ ell
         return mu, (V)
 
-    def _forward(self,data:'Data',z):
+    def _forward(self,data:'Data',z:np.ndarray):
         self.T = data.T
-        mu = np.zeros((self.T,self.state_dim))
-        V = np.zeros((self.T,self.state_dim,self.state_dim))
+        self.mu = np.zeros((self.T,self.state_dim))
+        self.V = np.zeros((self.T,self.state_dim,self.state_dim))
+        self.V12 = self.V[:-1].copy()
+
         m = self.m0(z[0]).copy()
         P = self.P0(z[0]).copy()
         for n in range(self.T):
             ''' update '''
             y = data.output[data.time==n]
-            mu[n], V[n] = self.update(y,m,P,z=z[n])
+            self.mu[n], self.V[n] = self.update(y,m,P,z=z[n])
             ''' predict '''
             if n < self.T-1:
-                m,P = self.predict(mu[n], V[n], z=z[n+1])
-        return mu, V
+                m,P = self.predict(self.mu[n], self.V[n], z=z[n+1])
 
-    def _backward(self,mu,V,z):
-        self._parameters['x'][-1] = mvn.rvs(mu[-1],V[-1])
+    def _backward(self,z:np.ndarray):
+        self._parameters['x'][-1] = mvn.rvs(self.mu[-1],self.V[-1])
         for t in range(self.T-2,-1,-1):
             state = z[t+1]
-            m = self.A(state) @ mu[t]
-            P = self.A(state) @ V[t] @ self.A(state).T + self.Q(state)
-            K_star = V[t] @ self.A(state).T @ la.inv(P)
+            m = self.A(state) @ self.mu[t]
+            P = self.A(state) @ self.V[t] @ self.A(state).T + self.Q(state)
+            K_star = self.V[t] @ self.A(state).T @ la.inv(P)
 
-            _mu = mu[t] + K_star @ (self.x[t+1] - m)
-            _V = (self.I - K_star @ self.A(state)) @ V[t]
+            _mu = self.mu[t] + K_star @ (self.x[t+1] - m)
+            _V = (self.I - K_star @ self.A(state)) @ self.V[t]
             self._parameters['x'][t] = mvn.rvs(_mu,_V)
 
-    def sample_x(self,data:'Data',z):
-        mu, V = self._forward(data,z)
-        self._backward(mu,V,z)
+            if self.hybrid is True:
+                self.mu[t] = self.mu[t] + K_star @ (self.mu[t+1] - m)
+                self.V[t] = self.V[t] + K_star @ (self.V[t+1] - P) @ K_star.T
+                self.V12[t] = K_star @ self.V[t+1]
 
-    def sample_parameters(self,data:'Data',z):
+    def sample_x(self,data:'Data',z:np.ndarray):
+        self._forward(data,z)
+        self._backward(z)
+
+    def sample_parameters(self,data:'Data',z:np.ndarray):
         for i,m in enumerate(self.theta):
             idx = z == i
             time_on = np.nonzero(idx)[0]
@@ -285,14 +288,14 @@ class LDS(Module):
             logl[idx] = mvn_logpdf(data.output[idx],mu,Sigma)
         return logl
         
-    def _check_input(self,data:'Data',z=None):
+    def _check_input(self,data:'Data',z:np.ndarray=None):
         if z is None:
             z = np.zeros(data.T).astype(int)
         if z.shape[0] != data.T:
             raise ValueError("1st dim of z and y must be equal.")
         return z
 
-    def forward(self,data:'Data',z=None):
+    def forward(self,data:'Data',z:np.ndarray=None):
         z = self._check_input(data,z)
         if self.x.shape[0] != data.T:
             self._parameters['x'] = np.zeros((data.T,self.state_dim))

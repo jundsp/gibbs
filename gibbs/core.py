@@ -1,15 +1,8 @@
-from typing import OrderedDict, Optional, Iterable, overload, Set
-from itertools import islice
-import operator
+from typing import OrderedDict, Iterable
 import numpy as np
 from tqdm import tqdm
 
-from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet
-from scipy.special import logsumexp
-import scipy.linalg as la
-
-from .utils import get_mean,get_median, mvn_logpdf
+from .utils import get_mean,get_median
 from .dataclass import Data
 from .modules.module import Module
 
@@ -17,12 +10,15 @@ class Gibbs(object):
     r'''
     Gibbs sampler base class.
 
-    Author: Julian Neri, May 2022
+    Author: Julian Neri
+    Affil: McGill University
+    Date: May 2022
     '''
-    def __init__(self):
+    def __init__(self,verbose:bool=True):
         self._samples = OrderedDict()
         self._estimates = OrderedDict()
         self.step_count = 0
+        self.verbose = bool(verbose)
 
     @property
     def nparams(self):
@@ -73,7 +69,7 @@ class Gibbs(object):
         self.step_count += 1
 
     def fit(self,data: 'Data', model: 'Module',samples=10):
-        for iter in tqdm(range(samples)):
+        for iter in tqdm(range(samples),disable=(not self.verbose)):
             model(data)
             self.step(model.named_parameters())
         self.get_estimates()
