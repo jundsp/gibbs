@@ -1,11 +1,6 @@
-from typing import OrderedDict,overload,Optional, Iterable, Set
-from itertools import islice
-import operator
 import numpy as np
 
 from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet
-from scipy.special import logsumexp
 import scipy.linalg as la
 
 from ..utils import mvn_logpdf
@@ -14,13 +9,12 @@ from .lds import LDS
 from .hmm import HMM
 from ..dataclass import Data
 
-#* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
+#TODO Parameters to have a "sample" or  "learn" setting, register into the sampler. If not learned, then dont add to the chain, and allow for easy setting.
 
 class SLDS(Module):
     r'''
-        Bayesian switching linear dynamical system.
+        Bayesian switching linear dynamical system (SLDS).
 
-        Gibbs sampling. 
 
         Author: Julian Neri, 2022
     '''

@@ -61,11 +61,9 @@ class Mixture(Module):
         if self.learn:
             self.sample_pi()
 
-
-
 class InfiniteMixture(Module):
     r'''
-        Infinite Bayesian mixture.
+        Infinite Bayesian mixture, a.k.a. Dirichlet process mixture model.
 
         Gibbs sampling. 
 

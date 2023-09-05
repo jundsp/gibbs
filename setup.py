@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='gibbs',
-    version='0.0',
+    version='0.2',
     description='Gibbs samplers for inference and learning of hierarchical Bayesian models.',
     author='Julian Neri',
     author_email='julian.neri@mcgill.ca',

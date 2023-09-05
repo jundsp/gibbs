@@ -1,20 +1,13 @@
-from typing import OrderedDict,overload,Optional, Iterable, Set
-from itertools import islice
-import operator
 import numpy as np
 
 from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet
-from scipy.special import logsumexp
 import scipy.linalg as la
 
 from ..utils import mvn_logpdf
 from .module import Module
 from .parameters import NormalWishart
-from .plate import TimePlate, Plate
+from .plate import TimePlate
 from ..dataclass import Data
-
-#* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
 
 class StateSpace(Module):
     def __init__(self,output_dim=1,state_dim=2,hyper_sample=True,full_covariance=True,sigma_ev_sys=.1, sigma_ev_obs=.1, init_method="random"):
@@ -95,7 +88,7 @@ class StateSpace(Module):
 
 class LDS(Module):
     r'''
-        Bayesian linear dynamical system.
+        Bayesian linear dynamical system (LDS).
 
         Gibbs sampling. 
 

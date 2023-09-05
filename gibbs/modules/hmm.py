@@ -10,11 +10,9 @@ from ..utils import log_normalize
 
 np.seterr(all='ignore')
 
-#* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
-
 class HMM(Module):
     r'''
-        Bayesian hidden Markov model.
+        Bayesian hidden Markov model (HMM).
 
         Gibbs sampling. 
 

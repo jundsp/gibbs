@@ -182,6 +182,15 @@ def classification_accuracy(target,estimate,M,K):
     return accuracy
 
 def relabel(probs,iters=10,verbose=False):
+    """
+    Relabeling algorithm to deal with label swithing in mixture models.
+
+    Ref:
+    M. Stephens, “Dealing with label switching in mixture models,” Journal of the Royal Statistical Society. Series B (Methodological), vol. 62, no. 4, pp. 795-809, 2000.
+
+    Julian Neri
+    August 2023
+    """
     T,N,K = probs.shape
 
     tau = np.stack([np.arange(K)]*T,0)

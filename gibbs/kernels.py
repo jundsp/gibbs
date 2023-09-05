@@ -1,8 +1,21 @@
+"""
+Gaussian process kernels.
+
+Julian Neri
+McGill University
+August 19, 2023
+
+"""
+
 import numpy as np
 from scipy.special import gamma, kv
 from typing import List
 
+
 class Kernel(object):
+    """
+    Base class for Kernel.
+    """
     def __init__(self,derive_dim:int=None) -> None:
         self.derive_dim = derive_dim
 
@@ -190,7 +203,6 @@ class ArcCos(Kernel):
             J = 3*np.sin(theta)*np.cos(theta) + (np.pi - theta) *(1 + 2*np.cos(theta)**2)
         return J
 
-
     def k0(self,x,y,l=0):
         return self.sigma2_b[l] + self.sigma2_w[l] * x * y
     
@@ -224,11 +236,6 @@ class ArcCos(Kernel):
                 ky_prev = ky_l.copy()
 
         return kxy_l
-    
-
-
-
-
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -240,13 +247,13 @@ if __name__ == "__main__":
     x = np.linspace(-1,1,N)
     mu = np.zeros(N)
 
-    kernel_rbf = RBF(sigma_cont=0,sigma_lin=0,scale=.2,sigma_rbf=1)
-    K_rbf = kernel_rbf(x,x)
+    kernel_rbf = RBF(scale=.2,sigma=1)
+    K_rbf = kernel_rbf(x.reshape(-1,1),x.reshape(-1,1))
     C_rbf = np.eye(K_rbf.shape[0])*1e-8 + K_rbf
     y_rbf = np.random.multivariate_normal(mu,C_rbf,M).T
 
     kernel_matern = Matern(p=2,scale=.2)
-    K_matern = kernel_matern(x,x)
+    K_matern = kernel_matern(x.reshape(-1,1),x.reshape(-1,1))
     C_matern = np.eye(K_matern.shape[0])*1e-8 + K_matern
     y_matern = np.random.multivariate_normal(mu,C_matern,M).T
 

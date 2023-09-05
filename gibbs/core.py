@@ -1,15 +1,8 @@
-from typing import OrderedDict, Optional, Iterable, overload, Set
-from itertools import islice
-import operator
+from typing import OrderedDict, Iterable
 import numpy as np
 from tqdm import tqdm
 
-from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet
-from scipy.special import logsumexp
-import scipy.linalg as la
-
-from .utils import get_mean,get_median, mvn_logpdf
+from .utils import get_mean,get_median
 from .dataclass import Data
 from .modules.module import Module
 
@@ -17,7 +10,9 @@ class Gibbs(object):
     r'''
     Gibbs sampler base class.
 
-    Author: Julian Neri, May 2022
+    Author: Julian Neri
+    Affil: McGill University
+    Date: May 2022
     '''
     def __init__(self,verbose:bool=True):
         self._samples = OrderedDict()

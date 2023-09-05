@@ -203,11 +203,6 @@ class GaussianProcess(Distribution):
         return m, cov
     
     def predictive(self,y,m,var,nu,reduce=True):
-        # N = y.shape[0]   
-        # logp = np.zeros(N)
-        # for n in range(N):
-        #     logp[n] = stats.multivariate_t.logpdf(y[n],loc=m[n],shape=var[n],df=nu)
-             
         logp = mvt_logpdf(y=y,loc=m,shape=var,df=nu)
         if reduce:
             logp = logp.sum()

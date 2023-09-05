@@ -1,11 +1,8 @@
-from typing import OrderedDict,overload,Optional, Iterable, Set
-
-
-#* Parameters should have a "sample /  learn" setting do register into the sampler. If not, then dont add to the chain, and allow for easy setting.
+from typing import OrderedDict,Optional, Iterable, Set
 
 class Module(object):
     r'''
-    Gibbs module base class.
+    Gibbs "Module" base class.
 
     Author: Julian Neri, May 2022
     '''

@@ -1,9 +1,12 @@
 import numpy as np
-from gibbs.utils import relabel
+import gibbs.utils as gutils
 
 if __name__ == "__main__":
+    """
+    Relabeling algorithm
+    """
     import matplotlib.pyplot as plt
-    plt.style.use('sines-latex')
+    plt.style.use('gibbs.mplstyles.latex')
 
     T = 200
     K = 5
@@ -27,7 +30,7 @@ if __name__ == "__main__":
     P += np.random.random(P.shape)*1e-2
     P /= P.sum(-1)[:,:,None]
 
-    tau = relabel(P,verbose=True)
+    tau = gutils.relabel(P,verbose=True)
 
     fig,ax = plt.subplots(2)
     ax[0].imshow(tau_tru.T)

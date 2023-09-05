@@ -181,7 +181,7 @@ class FiniteGMM(Module):
 
 class InfiniteGMM(Module):
     r'''
-        Infinite Bayesian mixture of Gaussians.
+        Infinite Bayesian mixture of Gaussians, a.k.a. Dirichlet process GMM.
 
         Collapsed Gibbs sampling. 
 
@@ -420,7 +420,7 @@ class InfiniteDistributionMix(InfiniteGMM):
 
 class FiniteDistributionMix(FiniteGMM):
     r'''
-        Finite Bayesian mixture of distributions, with different kinds of hyperparameters.
+        Finite Bayesian mixture of distributions, with flexible hyperpriors.
 
         Collapsed Gibbs sampling. 
 

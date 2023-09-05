@@ -1,11 +1,7 @@
-from typing import OrderedDict,overload,Optional, Iterable, Set
-from itertools import islice
-import operator
-import numpy as np
 
+import numpy as np
 from scipy.stats import multivariate_normal as mvn
-from scipy.stats import gamma, wishart, dirichlet, invgamma
-from scipy.special import logsumexp
+from scipy.stats import gamma, wishart, invgamma
 import scipy.linalg as la
 
 from ..utils import mvn_logpdf, makesymmetric
@@ -216,8 +212,6 @@ class NormalWishart(Module):
                 self.sample_alpha()
         if self.cov_sample == True:
             self.sample_Q()
-
-
 
 
 class CovarianceMatrix(Module):
