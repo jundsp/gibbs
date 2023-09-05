@@ -1,14 +1,10 @@
 #%%
-from gibbs import Gibbs, lds_test_data, tqdm, get_scatter_kwds, get_colors, LDS, Data, Mixture, Plate, Module, SLDS, HMM
+from gibbs import Gibbs, get_colors, LDS, Data, Module, HMM
 import numpy as np
 import matplotlib.pyplot as plt
-import os
 from sequential.lds import ode_polynomial_predictor
 from scipy.stats import multivariate_normal as mvn
-from scipy.stats import invgamma, uniform
-import sines
-
-plt.style.use('sines-latex')
+from scipy.stats import invgamma
 
 class MixtureLDS(Module):
     """

@@ -1,7 +1,6 @@
 #%%
 import gibbs
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 

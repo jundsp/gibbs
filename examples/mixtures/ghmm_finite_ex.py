@@ -1,12 +1,12 @@
 #%%
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import invgamma, norm, dirichlet, multivariate_normal as mvn
+from scipy.stats import dirichlet, multivariate_normal as mvn
 from itertools import product
 import os
 from pathlib import Path
-from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, categorical2multinomial, NormalWishart, Plate, classification_accuracy, relabel
-
+from gibbs import Gibbs, get_colors, Data, Mixture, Module, HMM, logsumexp, categorical2multinomial, Plate, classification_accuracy, relabel
+from gibbs.modules.parameters import NormalWishart
 import argparse
 
 parser = argparse.ArgumentParser(description='GHMM Finite example')
@@ -14,8 +14,7 @@ parser.add_argument('--output-directory', type=str, default='.', metavar='fname'
 parser.add_argument('--samples', type=int, default=200, metavar='fname', help='Number of samples')
 parser.add_argument('--trials', type=int, default=1, metavar='fname', help='Number of trials')
 parser.add_argument('--verbose', action='store_true', default=False)
-args = parser.parse_args()
-# plt.style.use('sines-latex')
+args = parser.parse_args(args=[])
 plt.style.use('gibbs.mplstyles.latex')
 
 def make_big_hmm(Gam,pi,components):

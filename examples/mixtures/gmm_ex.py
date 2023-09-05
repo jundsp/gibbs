@@ -1,9 +1,9 @@
 #%%
-from gibbs import Gibbs, InfiniteGMM, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel, categorical2multinomial
+from gibbs import Gibbs, InfiniteGMM, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 from variational import VB_GMM
+import os
 
 plt.style.use('gibbs.mplstyles.latex')
 
@@ -16,6 +16,7 @@ y, z = gmm_generate(500,2,5)
 data = Data(y=y)
 data.plot()
 
+os.makedirs("imgs",exist_ok=True)
 scattercat(data.output,z,figsize=figsize,colors=colors)
 plt.savefig("imgs/gmm_data_ex.pdf")
 

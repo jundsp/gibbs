@@ -1,5 +1,5 @@
 #%%
-from gibbs import Gibbs, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel, categorical2multinomial
+from gibbs import Gibbs, GMM, gmm_generate, plot_cov_ellipse, get_colors,scattercat, Data, relabel
 import numpy as np
 import os
 import matplotlib.pyplot as plt

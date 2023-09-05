@@ -1,10 +1,7 @@
 #%%
-from gibbs import Gibbs, lds_test_data, tqdm, get_scatter_kwds, get_colors, LDS, Data, Mixture, Plate, Module, categorical2multinomial
+from gibbs import Gibbs, get_colors, LDS, Data, Mixture, Plate, Module, categorical2multinomial
 import numpy as np
 import matplotlib.pyplot as plt
-import os
-
-plt.style.use('sines-latex')
 
 class MixtureLDS(Module):
     def __init__(self,output_dim,state_dim=2,components=2,learn=False):

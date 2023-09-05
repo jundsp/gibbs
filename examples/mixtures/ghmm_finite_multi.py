@@ -1,16 +1,9 @@
 #%%
-from gibbs import Gibbs, lds_test_data, tqdm, get_scatter_kwds, get_colors, LDS, Data, Mixture, Plate, Module, SLDS, HMM, logsumexp, categorical2multinomial
+from gibbs import Gibbs, tqdm, get_colors, Data, HMM, categorical2multinomial
 import numpy as np
 import matplotlib.pyplot as plt
-import os
-from sequential.lds import ode_polynomial_predictor
-from scipy.stats import multivariate_normal as mvn
-from scipy.stats import invgamma, uniform, norm, multinomial, dirichlet
+from scipy.stats import norm
 from itertools import product
-
-plt.style.use('sines-latex')
-
-#* Varying number of observations (so HMM states changes per time), and put in the LDS.
 
 T = 200
 sources = 2
