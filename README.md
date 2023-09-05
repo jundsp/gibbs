@@ -6,10 +6,12 @@ Includes base classes for sampling and modules for a variety of popular Bayesian
 
 ## Installation
 
-Clone the repository, then run the following to install the package.
-
+Clone the repository, and enter the directory,
 ```
 cd /gibbs
+```
+Then install the package,
+```
 python3 -m pip install .
 ```
 
