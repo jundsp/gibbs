@@ -27,9 +27,9 @@ python -m unittest tests/gibbs_basic_test.py
 ## Examples
 A collection of examples are contained in the "examples" directory. These cover using the Gibbs package to infer a variety of the implemented Bayesian models: mixture models, linear dyanmical systems, switching dynamical systems, hidden Markov models, dirichlet process, and more.
 
-In the mixture examples, we can infer a Dirichlet process mixture model (a Gaussian mixture model with an infinitely countable number of components), as illustrated in the following figure.
+In one of the mixture examples, we infer a Dirichlet process mixture model (a Gaussian mixture model with an infinitely countable number of components) from 2D data, giving the following illustration.
 
-![alt text](https://github.com/jundsp/gibbs/blob/main/examples/mixtures/imgs/gmm_dirichlet_process.pdf?raw=true)
+![alt text](https://github.com/jundsp/gibbs/blob/main/examples/mixtures/imgs/gmm_dirichlet_process.png?raw=true)
 
 
 ---
