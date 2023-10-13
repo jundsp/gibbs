@@ -9,7 +9,7 @@ plt.style.use('gibbs.mplstyles.latex')
 figsize=(3,2.5)
 colors = gibbs.get_colors()
 np.random.seed(123)
-y, z = gibbs.gmm_generate(200,2,4)
+y, z = gibbs.gmm_generate(200,2,5)
 y[z==0] = stats.laplace.rvs(0,3,y[z==0].shape)
 data = gibbs.Data(y=y)
 
