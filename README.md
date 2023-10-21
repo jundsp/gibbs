@@ -37,10 +37,10 @@ import matplotlib.pyplot as plt
 
 plt.style.use('gibbs.mplstyles.latex')
 
-% Data creation
+# Generate some 2D GMM data.
 np.random.seed(8)
-y, z = gibbs.gmm_generate(500,2,5) # Generate some 2D GMM data.
-data = gibbs.Data(y=y) # And create data object to be used by Gibbs.
+y, z = gibbs.gmm_generate(500,2,5)  
+data = gibbs.Data(y=y) # Creates data object to be used by Gibbs.
 
 ```
 
