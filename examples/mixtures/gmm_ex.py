@@ -1,17 +1,18 @@
 #%%
-from gibbs import Gibbs, InfiniteGMM, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel
+from gibbs import Gibbs, InfiniteGMM, GMM, gmm_generate, plot_cov_ellipse, get_colors, get_scatter_kwds,scattercat, Data, relabel, categorical2multinomial
 import numpy as np
 import matplotlib.pyplot as plt
 from variational import VB_GMM
 import os
 
+#%%
 plt.style.use('gibbs.mplstyles.latex')
 
 # * Compute times or complexity to add into the thesis
 figsize=(3,2.5)
 colors = get_colors()
 # colors = np.array(['r','g','b','m','y','k','orange','grey']*30)
-np.random.seed(123)
+np.random.seed(8)
 y, z = gmm_generate(500,2,5)
 data = Data(y=y)
 data.plot()
@@ -77,28 +78,36 @@ modeli = InfiniteGMM(collapse_locally=True,sigma_ev=1)
 sampleri = Gibbs()
 
 #%%
-sampleri.fit(data,modeli,samples=100)
+sampleri.fit(data,modeli,samples=10)
 
 #%%
 sampleri.get_estimates(burn_rate=.9)
+chain = sampleri.get_chain(burn_rate=.9,flatten=False)
 
-z_hat = modeli.z
+z_hat_median = sampleri._estimates['z']
+z_hat = categorical2multinomial(chain['z']).mean(0).argmax(-1)
 scattercat(data.output,z_hat,figsize=figsize,colors=colors)
 for k in np.unique(z_hat):
     idx = z_hat == k
     mu,S,nu = modeli._predictive_parameters(*modeli._posterior(modeli.y[idx],*modeli.theta))
     cov = S * (nu)/(nu-2)
     plot_cov_ellipse(mu,cov,fill=None,color=colors[k])
-plt.savefig("imgs/gmm_dp_ex.pdf")
+plt.savefig("imgs/gmm_dirichlet_process.png")
 
 chain = sampleri.get_chain(burn_rate=0,flatten=False)
-fig,ax = plt.subplots(len(chain),figsize=(5,1.5*len(chain)))
+fig,ax = plt.subplots(len(chain),figsize=(4,1.5*len(chain)),sharex=True)
 for ii,p in enumerate(chain):
     _x = chain[p]
     _x = _x.reshape(_x.shape[0],-1)
-    ax[ii].plot(_x,'k',alpha=.1)
-    ax[ii].set_title(p)
+    alpha = .01
+    if _x.shape[-1] < 2:
+        alpha = 1
+    ax[ii].plot(_x,'k',alpha=alpha)
+    ax[ii].set_ylabel(p)
+    ax[ii].set_xlim(0,_x.shape[0]-1)
+    ax[ii].set_ylim(0)
+ax[ii].set_xlabel("step")
 plt.tight_layout()
-plt.savefig("imgs/gmm_dp_chain.pdf")
+plt.savefig("imgs/gmm_dirichlet_process_chain.png")
 
 # %%
