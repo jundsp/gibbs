@@ -37,10 +37,10 @@ import matplotlib.pyplot as plt
 
 plt.style.use('gibbs.mplstyles.latex')
 
-% Data creation
+# Generate some 2D GMM data.
 np.random.seed(8)
-y, z = gibbs.gmm_generate(500,2,5) # Generate some 2D GMM data.
-data = gibbs.Data(y=y) # And create data object to be used by Gibbs.
+y, z = gibbs.gmm_generate(500,2,5)  
+data = gibbs.Data(y=y) # Creates data object to be used by Gibbs.
 
 ```
 
@@ -63,9 +63,9 @@ sampler = gibbs.Gibbs() # Get the base sampler
 
 ```python
 # Fitting model to data
-sampler.fit(data,model,samples=30) # Fit model to data
+sampler.fit(data,model,samples=50) # Fit model to data with 50 samples
 
-# Retrieving the samples and computing estimates
+# Retrieve the samples and compute expected value
 chain = sampler.get_chain(burn_rate=.9,flatten=False) # Get the sample chain
 z_hat = gibbs.categorical2multinomial(chain['z']).mean(0).argmax(-1) # Compute expected value
 
