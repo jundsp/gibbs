@@ -85,6 +85,15 @@ plt.show()
 
 ![DP mixture model.](https://github.com/jundsp/gibbs/blob/main/examples/mixtures/imgs/gmm_dirichlet_process.png?raw=true)
 
+### Switching Linear Dynamical System
+
+Switching linear dynamical systems are temporal models that have both a discrete state (HMM) and a continuous state (LDS/Kalman filter).
+In the example "slds_ex.py" in the examples folder, an SLDS is fit to 1D time-series data.
+The data is a sinusoidal oscillation that has discrete changes in frequency.
+
+![SLDS.](https://github.com/jundsp/gibbs/blob/main/examples/slds/imgs/slds_ex.png?raw=true)
+
+![SLDS sample chain for the discrete state.](https://github.com/jundsp/gibbs/blob/main/examples/slds/imgs/slds_ex_chain.png?raw=true)
 
 ---
 Author: Julian Neri  
