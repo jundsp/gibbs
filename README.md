@@ -90,8 +90,10 @@ plt.show()
 Switching linear dynamical systems are temporal models that have both a discrete state (HMM) and a continuous state (LDS/Kalman filter).
 In the example "slds_ex.py" in the examples folder, an SLDS is fit to 1D time-series data.
 The data is a sinusoidal oscillation that has discrete changes in frequency.
+Given the data (circles in picture below), Gibbs sampling infers all latent variables and parameters of the model: HMM state "z", LDS state "x", LDS parameters for each discrete state "A,Q,C,R,m0,P0", and HMM parameters "Gamma, pi".
 
 ![SLDS.](https://github.com/jundsp/gibbs/blob/main/examples/slds/imgs/slds_ex.png?raw=true)
+
 
 ![SLDS sample chain for the discrete state.](https://github.com/jundsp/gibbs/blob/main/examples/slds/imgs/slds_ex_chain.png?raw=true)
 
