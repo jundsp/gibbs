@@ -8,7 +8,7 @@ plt.style.use('gibbs.mplstyles.latex')
 
 T = 100
 M = 2
-np.random.seed(1)
+np.random.seed(123)
 fvec = np.zeros(T)
 f = np.random.uniform(0/T,.1)
 for t in range(T):
@@ -33,8 +33,6 @@ mask[data.time < 10] = False
 mask[data.time > (data.T-10)] = False
 data = data.filter(mask)
 data.plot()
-
-# TODO - select which parameters to sample (required_sampling = True / False) - have a global noise parameter, state independent, should work better than different noise per state, assumes constant noise level. Set the settings of model with a configuration file, because there are many settings. Consider how off state is distinguished, cant infer from no data that it is off?
 
 #%%
 states = 10
@@ -64,13 +62,14 @@ for k in range(model.states):
 sampler = gibbs.Gibbs()
 
 #%%
-sampler.fit(data=data,model=model,samples=100)
+sampler.fit(data=data,model=model,samples=200)
 
 #%%
 chain = sampler.get_chain(burn_rate=0,flatten=False)
 sampler.get_estimates(burn_rate=.9)
 x_hat = sampler._estimates['lds.x']
 z_hat = sampler._estimates['hmm.z']
+
 # x_hat = model.lds.x
 # z_hat = model.hmm.z
 steps = chain['lds.x'].shape[0]
@@ -84,29 +83,30 @@ y_chain = y_chain.reshape(y_chain.shape[0],-1)
 plt.plot(chain['hmm.z'].T,'k.',alpha=.1,markersize=2)
 
 #%%
-fig,ax = plt.subplots(2,figsize=(5,5))
+fig,ax = plt.subplots(2,figsize=(4,4))
 colors = plt.get_cmap('jet')(np.linspace(0,1,states))
 for k in range(y.shape[-1]):
     ax[0].scatter(data.time,data.output[:,k],c=colors[z_hat[data.time]],s=10,edgecolor='none',zorder=2,alpha=.8)
-ax[0].plot(y_chain,'k',alpha=.1,zorder=1)
-ax[0].plot(y_hat,'k',alpha=1,zorder=1)
+ax[0].plot(y_chain,'k',alpha=.05,zorder=1)
+ax[0].plot(y_hat,'k',alpha=.75,zorder=1)
 ax[0].set_xlim(0,T)
 ax[0].set_ylim(y.min()-.1,y.max()+.1)
 ax[0].set_ylabel('$y$')
 ax[1].scatter(np.arange(len(z_hat)),z_hat+1,c=colors[z_hat],s=20,edgecolor='none')
-ax[1].set_xlabel('time (sample)'), ax[1].set_ylabel('state'),
+ax[1].set_xlabel('time'), ax[1].set_ylabel('state'),
 ax[1].set_xlim(0,T), ax[1].set_ylim(1-.25,model.states+.25), ax[1].set_yticks(np.arange(model.states)+1)
 plt.tight_layout()
 
 path_out = "imgs"
 os.makedirs(path_out,exist_ok=True)
-plt.savefig(os.path.join(path_out,"slds_ex.pdf"))
+plt.savefig(os.path.join(path_out,"slds_ex.png"))
 
 # %%
-plt.figure(figsize=(4,2))
+plt.figure(figsize=(3.5,2))
 plt.imshow(colors[chain['hmm.z']])
-plt.savefig(os.path.join(path_out,"slds_ex_chain.pdf"))
 plt.xlabel('time')
 plt.ylabel('sample')
+plt.tight_layout()
+plt.savefig(os.path.join(path_out,"slds_ex_chain.png"),bbox_inches="tight")
 
 # %%

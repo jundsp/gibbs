@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
+plt.style.use("gibbs.mplstyles.latex")
+
 #%%
 T = 300
 np.random.seed(123)
@@ -62,7 +64,7 @@ plt.tight_layout()
 
 path_out = "imgs"
 os.makedirs(path_out,exist_ok=True)
-plt.savefig(os.path.join(path_out,"lds_ex.pdf"))
+plt.savefig(os.path.join(path_out,"lds_ex.png"))
 
 # %%
 plt.plot(model.loglikelihood(data))

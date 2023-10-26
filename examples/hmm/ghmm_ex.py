@@ -5,6 +5,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
+plt.style.use("gibbs.mplstyles.latex")
+
+
 T = 500
 np.random.seed(123)
 y,z_true = hmm_generate(n=T,n_components=3)
