@@ -72,7 +72,7 @@ z_hat = gibbs.categorical2multinomial(chain['z']).mean(0).argmax(-1) # Compute e
 ```
 
 ```python
-# Plot results
+# Plot the data color-coded according to the estimated mixture component and the ellipses depicting the mean and standard deviation of each 2D Gaussian component.
 gibbs.scattercat(data.output,z_hat,figsize=figsize,colors=colors)
 for k in np.unique(z_hat):
     idx = z_hat == k
@@ -85,6 +85,20 @@ plt.show()
 
 ![DP mixture model.](https://github.com/jundsp/gibbs/blob/main/examples/mixtures/imgs/gmm_dirichlet_process.png?raw=true)
 
+
+```python
+# Plot the number of points associated to each component at each sampling step.
+z_hat = categorical2multinomial(chain['z'])
+K_hat = z_hat.sum(1)
+plt.figure(figsize=(4,2.5))
+plt.imshow(K_hat.T,cmap='Greys',extent=[1,z_hat.shape[0],.5,.5+K_hat.shape[-1]])
+plt.ylabel(r"component $z$")
+plt.xlabel("step")
+plt.yticks(np.arange(14)+1)
+plt.colorbar(label="count")
+plt.tight_layout()
+plt.show()
+```
 ![DP mixture model, component chain.](https://github.com/jundsp/gibbs/blob/main/examples/mixtures/imgs/gmm_dirichlet_process_chain.png?raw=true)
 
 
