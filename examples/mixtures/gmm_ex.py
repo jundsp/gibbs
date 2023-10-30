@@ -86,13 +86,15 @@ chain = sampleri.get_chain(burn_rate=.9,flatten=False)
 
 z_hat_median = sampleri._estimates['z']
 z_hat = categorical2multinomial(chain['z']).mean(0).argmax(-1)
-scattercat(data.output,z_hat,figsize=figsize,colors=colors)
+scattercat(data.output,z_hat,figsize=(4,2.5),colors=colors)
 for k in np.unique(z_hat):
     idx = z_hat == k
     mu,S,nu = modeli._predictive_parameters(*modeli._posterior(modeli.y[idx],*modeli.theta))
     cov = S * (nu)/(nu-2)
-    plot_cov_ellipse(mu,cov,fill=None,color=colors[k])
-plt.savefig("imgs/gmm_dirichlet_process.png")
+    plot_cov_ellipse(mu,cov,fill=None,color=colors[k],label=r"$z={}$".format(k+1))
+plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+plt.tight_layout()
+plt.savefig("imgs/gmm_dirichlet_process.png",bbox_inches="tight")
 
 chain = sampleri.get_chain(burn_rate=0,flatten=False)
 fig,ax = plt.subplots(len(chain),figsize=(4,1.5*len(chain)),sharex=True)
@@ -108,6 +110,18 @@ for ii,p in enumerate(chain):
     ax[ii].set_ylim(0)
 ax[ii].set_xlabel("step")
 plt.tight_layout()
-plt.savefig("imgs/gmm_dirichlet_process_chain.png")
+plt.savefig("imgs/gmm_dirichlet_process_chain.png",bbox_inches="tight")
 
 # %%
+z_hat = categorical2multinomial(chain['z'])
+K_hat = z_hat.sum(1)
+plt.figure(figsize=(4,2.5))
+plt.imshow(K_hat.T,cmap='Greys',extent=[1,z_hat.shape[0],.5,.5+K_hat.shape[-1]])
+plt.ylabel(r"component $z$")
+plt.xlabel("step")
+plt.yticks(np.arange(14)+1)
+plt.colorbar(label="count")
+plt.tight_layout()
+plt.savefig("imgs/gmm_dirichlet_process_chain.png",bbox_inches="tight")
+# %%
+
