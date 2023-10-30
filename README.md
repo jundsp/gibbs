@@ -85,6 +85,9 @@ plt.show()
 
 ![DP mixture model.](https://github.com/jundsp/gibbs/blob/main/examples/mixtures/imgs/gmm_dirichlet_process.png?raw=true)
 
+![DP mixture model, component chain.](https://github.com/jundsp/gibbs/blob/main/examples/mixtures/imgs/gmm_dirichlet_process_chain.png?raw=true)
+
+
 ### Switching Linear Dynamical System
 
 Switching linear dynamical systems are temporal models that have both a discrete state (HMM) and a continuous state (LDS/Kalman filter).
