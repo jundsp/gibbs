@@ -105,9 +105,9 @@ time = np.arange(T)
 f = .1
 
 y = np.cos(time*f)*.6
-y[:20] = np.random.uniform(-1,1,20)
+y[:30] = np.random.uniform(-1,1,30)
 y[-10:] = np.random.uniform(-1,1,10)
-y[T//2-10:T//2+20] = np.random.uniform(-1,1,30)
+y[-30:] = np.random.uniform(-1,1,len(y[-30:]))
 
 noise = np.random.uniform(-1,1,(T,N-1))
 if N > 1:
